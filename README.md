@@ -1,46 +1,34 @@
+
+```            __        
+  _______ ____/ /__  ___ 
+ / __/ _ `/ _  / _ \/ _ \
+/_/  \_,_/\_,_/\___/_//_/
+                      
 ```
------------------------------------------------------------------------------
-                      __
-  ____      ___ _ ___/ / ___   ___
- / __/     / _ `// _  / / _ \ / _ \
-/_/    ____\_,_/ \_,_/  \___//_//_/
-      /___/
 
------------------------------------------------------------------------------
-                                                          _
- _     _   _   _ |   _   _   _    _   _   _   _   _  _   (_  _   _    _  . |_
-(_|   |_) (_| (_ |( (_| (_) (-   ||| (_| | ) (_) (- |    |  (_) |    (_) | |_
-      |                 _/                   _/                      _/
+**radon** is a minimalist modular package manager for git repos built in rust 
 
-------------------------------------------------------------------------------
+<p align="center">
+  <img src="radon.png" alt="screenshot" width="600">
+</p>
 
-.  _   _ |_  _  | |  _  |_ .  _   _
-| | ) _) |_ (_| | | (_| |_ | (_) | )
+# Features
 
-------------------------------------------------------------------------------
+- makefile cmake and cargo build support
+- simple cli interface
+- dependency handling
 
-git clone https://github.com/tungstencube-git/radon/
+# Use Cases
 
-cd radon
+* building from source for linux/berkeley software distibutions like alpine linux freebsd or void linux 
+* honestly not much more
+    
+# Installation
 
-cargo build --release
+- `sudo git clone https://github.com/tungstencube-git/radon/`
+- ` cd radon `
+- ` cargo build --release`
+- ` cp target/release/radon /usr/bin `
 
-cd target/release
 
-sudo cp radon /usr/bin (or /usr/local/bin if in $PATH run 'echo $PATH' to check)
 
---------------------------------------------------------------------------------
-
-|_  _   __  _|  _
-|_ (_)     (_| (_)
-
---------------------------------------------------------------------------------
-
-[-] sandboxing
-[-] more build system support
-[-] gui frontend
-[-] better dependency handling
-[-] /tmp/ cleanup
-[-] better remove function
----------------------------------------------------------------------------------
-```
