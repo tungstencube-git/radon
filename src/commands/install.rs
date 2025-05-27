@@ -164,8 +164,12 @@ fn parse_make_deps(dir: &Path) -> Vec<String> {
 fn parse_cargo_deps(dir: &Path) -> Vec<String> {
     let cargo_toml = fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default();
     let value = cargo_toml.parse::<Value>().unwrap_or(Value::Table(Map::new()));
-    value["package"]["metadata"]["radon"]["dependencies"]
-        .as_array()
+    
+    value.get("package")
+        .and_then(|p| p.get("metadata"))
+        .and_then(|m| m.get("radon"))
+        .and_then(|r| r.get("dependencies"))
+        .and_then(|d| d.as_array())
         .map(|deps| {
             deps.iter()
                 .filter_map(|d| d.as_str().map(|s| s.to_string()))
