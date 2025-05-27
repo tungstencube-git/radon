@@ -142,8 +142,19 @@ pub fn install(package: &str) {
         .status()
         .expect("Failed to update package list");
 
-    println!("{} in {}s", Green.paint("~> INSTALL FINISHED"), start.elapsed().as_secs());
-}
+println!("{} in {}s", Green.paint("~> INSTALL FINISHED"), start.elapsed().as_secs());
+
+println!(
+    "{}",
+    Yellow.paint(
+        "Warning: radon installs packages to /usr/local/bin by default.\n\
+        If /usr/local/bin is not in your $PATH, you may need to add it by modifying your shell configuration file (e.g., .bashrc, .zshrc).\n\
+        Alternatively, you can move the installed binary manually:\n\
+          sudo cp /usr/local/bin/<package> /usr/bin\n\
+        or\n\
+          doas cp /usr/local/bin/<package> /usr/bin"
+    )
+);
 
 fn parse_make_deps(dir: &Path) -> Vec<String> {
     let makefile = fs::read_to_string(dir.join("Makefile")).unwrap_or_default();
