@@ -6,14 +6,14 @@ Package manager for git
 
 Radon is a package manager for git projects built in rust that compiles from source
 
+![Preview](radon.png)
+
 # TO-DO 
 
 - [✕] More build system support
 - [✕] Binary tracking
 - [✕] Better search function 
 - [✕] Better readability
-
-![Preview](radon.png)
 
 ## Installation
 
