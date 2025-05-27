@@ -5,18 +5,31 @@ use std::process::{Command, Stdio};
 use std::time::Instant;
 use ansi_term::Colour::{Green, Red, Yellow};
 use toml::{Value, map::Map};
-use crate::utils::{check_deps, get_bin_path};
+
+fn get_privilege_command() -> String {
+    let doas_available = Command::new("sh")
+        .arg("-c")
+        .arg("command -v doas")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false);
+
+    if doas_available { "doas".into() } else { "sudo".into() }
+}
 
 pub fn install(package: &str) {
     let start = Instant::now();
     let tmp = Path::new("/tmp/radon");
     let builds = tmp.join("builds");
     let etc = Path::new("/etc/radon");
+    let privilege_cmd = get_privilege_command();
 
     for dir in [tmp, &builds, etc] {
         if !dir.exists() {
             if dir == etc {
-                Command::new("sudo")
+                Command::new(&privilege_cmd)
                     .arg("mkdir")
                     .arg("-p")
                     .arg(dir)
@@ -49,7 +62,6 @@ pub fn install(package: &str) {
         return;
     }
 
-    println!("\x1b[1m~> Searching for build file\x1b[0m");
     let (build_system, deps) = if build_dir.join("Makefile").exists() {
         ("make", parse_make_deps(&build_dir))
     } else if build_dir.join("Cargo.toml").exists() {
@@ -70,7 +82,6 @@ pub fn install(package: &str) {
 
     check_deps(&deps);
 
-    println!("~> Building...");
     let build_status = match build_system {
         "make" => Command::new("make")
             .current_dir(&build_dir)
@@ -80,17 +91,13 @@ pub fn install(package: &str) {
         "cmake" => {
             let cmake_build_dir = build_dir.join("cmake-build-release");
             fs::create_dir_all(&cmake_build_dir).expect("Failed to create build dir");
-
             let cmake_status = Command::new("cmake")
                 .arg("..")
                 .current_dir(&cmake_build_dir)
                 .stdout(Stdio::null())
                 .status()
                 .expect("CMake command failed");
-
-            if !cmake_status.success() {
-                cmake_status
-            } else {
+            if !cmake_status.success() { cmake_status } else {
                 Command::new("make")
                     .current_dir(&cmake_build_dir)
                     .stdout(Stdio::null())
@@ -113,7 +120,6 @@ pub fn install(package: &str) {
         return;
     }
 
-    println!("~> Installing...");
     let bin_name = format!("{}(radon)", repo);
     let bin_path = match build_system {
         "make" => build_dir.join(repo),
@@ -127,7 +133,7 @@ pub fn install(package: &str) {
         println!("{}", Yellow.paint("WARNING: Installing to /usr/bin may cause conflicts"));
     }
 
-    Command::new("sudo")
+    Command::new(&privilege_cmd)
         .arg("install")
         .arg("-m755")
         .arg(&bin_path)
@@ -135,7 +141,7 @@ pub fn install(package: &str) {
         .status()
         .expect("Installation failed");
 
-    Command::new("sudo")
+    Command::new(&privilege_cmd)
         .arg("sh")
         .arg("-c")
         .arg(format!("echo {} >> /etc/radon/listinstalled", repo))
@@ -146,30 +152,18 @@ pub fn install(package: &str) {
 }
 
 fn parse_make_deps(dir: &Path) -> Vec<String> {
-    let makefile = fs::read_to_string(dir.join("Makefile")).unwrap_or_default();
-    makefile
+    fs::read_to_string(dir.join("Makefile")).unwrap_or_default()
         .lines()
         .find(|l| l.contains("# DEPENDENCIES:"))
-        .map(|l| {
-            l.split(':')
-                .nth(1)
-                .unwrap()
-                .split(',')
-                .map(|s| s.trim().to_string())
-                .collect()
-        })
+        .map(|l| l.split(':').nth(1).unwrap().split(',').map(|s| s.trim().into()).collect())
         .unwrap_or_default()
 }
 
 fn parse_cargo_deps(dir: &Path) -> Vec<String> {
-    let cargo_toml = fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default();
-    let value = cargo_toml.parse::<Value>().unwrap_or(Value::Table(Map::new()));
-    value["package"]["metadata"]["radon"]["dependencies"]
+    fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default()
+        .parse::<Value>().unwrap_or(Value::Table(Map::new()))
+        ["package"]["metadata"]["radon"]["dependencies"]
         .as_array()
-        .map(|deps| {
-            deps.iter()
-                .filter_map(|d| d.as_str().map(|s| s.to_string()))
-                .collect()
-        })
+        .map(|deps| deps.iter().filter_map(|d| d.as_str().map(|s| s.into())).collect())
         .unwrap_or_default()
 }
