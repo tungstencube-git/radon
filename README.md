@@ -24,11 +24,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## General Tips
 
-- **Install directory**: Radon installs to /usr/local/bin if in PATH if not in path falls back to /usr/bin if you install a package with radon but get a command not found error run "ls /usr/local/bin | grep radon 
+- **Install directory**: Radon installs to /usr/local/bin if in PATH if not in path falls back to /usr/bin if you install a package with radon but get a command not found error run "ls /usr/local/bin | grep radon"
 
 - **Removing packages**: The removing function is currently very primitive, it stores installed packages at /etc/radon/listinstalled if the previously mentioned file is removed radon wont be aware of installed packages
 
-- **Distinguishing**: Radon marks every installed package with (radon) at the end to distinguish between radon installed and non radon installed packages 
+- **Distinguishing**: Radon marks every installed package with (radon) at the end to distinguish between radon installed and non radon installed packages
 
 ## Examples
 
