@@ -32,9 +32,11 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Examples
 
-`radon install user/repo` -- Clones and builds the package at /tmp/radon/builds.
-`radon remove package` -- Removes /usr/local/bin/package(radon) **(SINCE /USR/BIN IS A FALLBACK AND INTERFERES WITH SYSTEM PACKAGE MANAGER THE DIRECTORY IS IGNORED)**
-`radon search` -- Searches github for repositories
+- `radon install user/repo` -- Clones and builds the package at /tmp/radon/builds.
+
+- `radon remove package` -- Removes /usr/local/bin/package(radon) **(SINCE /USR/BIN IS A FALLBACK AND INTERFERES WITH SYSTEM PACKAGE MANAGER THE DIRECTORY IS IGNORED)** 
+
+- `radon search` -- Searches github for repositories
 
 ## Community/Support
 
