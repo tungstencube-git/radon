@@ -28,7 +28,7 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 - **Removing packages**: The removing function is currently very primitive, it stores installed packages at /etc/radon/listinstalled if the previously mentioned file is removed radon wont be aware of installed packages
 
-- **Distinguishing **: Radon marks every installed package with (radon) at the end to distinguish between radon installed and non radon installed packages 
+- **Distinguishing**: Radon marks every installed package with (radon) at the end to distinguish between radon installed and non radon installed packages 
 
 ## Examples
 
