@@ -1,6 +1,6 @@
 use std::env;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use ansi_term::Colour::Red;
 
 pub fn check_deps(deps: &[String]) {
@@ -45,5 +45,22 @@ pub fn get_bin_path() -> PathBuf {
         PathBuf::from("/usr/local/bin")
     } else {
         PathBuf::from("/usr/bin")
+    }
+}
+
+pub fn get_privilege_command() -> String {
+    let doas_available = Command::new("sh")
+        .arg("-c")
+        .arg("command -v doas")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if doas_available {
+        "doas".into()
+    } else {
+        "sudo".into()
     }
 }
