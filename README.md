@@ -44,4 +44,4 @@ Radon currently doesnt have a IRC/Subreddit/Discord if the project gets big enou
 
 ## Debugging
 
-Radon isnt a official git tool, if radon cannot build a package check if you can manually build the package from source, if you cant open a issue about the bug.
+Radon isnt a official git tool, if radon cannot build a package check if you can manually build the package from source, if you cant open a issue about the bug on the repo you are trying to build.
