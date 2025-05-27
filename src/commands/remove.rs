@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::Path;
 use std::process::Command;
-use ansi_term::Colour::Red;
+use ansi_term::Colour::{Green, Red};
 use crate::utils::get_bin_path;
 
 pub fn remove(package: &str) {
