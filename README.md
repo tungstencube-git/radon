@@ -14,7 +14,7 @@ Radon is a package manager for git projects built in rust that compiles from sou
 - [✕] Binary tracking
 - [✕] Better search function 
 - [✕] Better readability
-- [✕] GitLab and Codeberg support
+- [✓] GitLab and Codeberg support
 
 ## Installation
 
