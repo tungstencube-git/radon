@@ -1,32 +1,84 @@
+// TO-DO - SPLIT TO MULTIPLE FILES
+
 use std::fs;
-use std::io;
+use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 use ansi_term::Colour::{Green, Red, Yellow};
 use toml::{Value, map::Map};
-use crate::utils::{check_deps, get_bin_path};
 
-pub fn install(package: &str) {
+fn check_deps(deps: &[String]) {
+    for dep in deps {
+        if dep == "make-tool" {
+            let make_exists = Command::new("make")
+                .arg("--version")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok();
+            
+            if !make_exists {
+                eprintln!(
+                    "{}: 'make' not found in PATH",
+                    Red.paint("Error")
+                );
+                std::process::exit(1);
+            }
+            continue;
+        }
+        
+        let status = Command::new("sh")
+            .arg("-c")
+            .arg(format!("command -v {}", dep))
+            .stdout(Stdio::null())
+            .status();
+        
+        if status.map(|s| !s.success()).unwrap_or(true) {
+            eprintln!(
+                "{}: Dependency '{}' is not installed",
+                Red.paint("Error"),
+                dep
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
+pub fn install(package: &str, source: Option<&str>, local: bool, branch: Option<&str>) {
     let start = Instant::now();
     let tmp = Path::new("/tmp/radon");
     let builds = tmp.join("builds");
     let etc = Path::new("/etc/radon");
 
-    for dir in [tmp, &builds, etc] {
+    for dir in [tmp, &builds] {
         if !dir.exists() {
-            if dir == etc {
-                Command::new("sudo")
-                    .arg("mkdir")
-                    .arg("-p")
-                    .arg(dir)
-                    .status()
-                    .expect("Failed to create system directory");
-            } else {
-                fs::create_dir_all(dir).expect("Failed to create temp directory");
-            }
+            fs::create_dir_all(dir).expect("Failed to create temp directory");
         }
     }
+
+    if !local && !etc.exists() {
+        Command::new("sudo")
+            .arg("mkdir")
+            .arg("-p")
+            .arg(etc)
+            .status()
+            .expect("Failed to create system directory");
+    }
+
+    let (source_str, domain) = match source {
+        Some("gitlab") => ("gitlab", "gitlab.com"),
+        Some("codeberg") => ("codeberg", "codeberg.org"),
+        _ => {
+            if source.is_none() {
+                println!(
+                    "{}: No source specified, falling back to GitHub",
+                    Yellow.paint("Warning")
+                );
+            }
+            ("github", "github.com")
+        }
+    };
 
     let repo = package.split('/').last().unwrap();
     let build_dir = builds.join(repo);
@@ -36,22 +88,32 @@ pub fn install(package: &str) {
     }
 
     println!("\x1b[1m~> Cloning repository\x1b[0m");
-    let status = Command::new("git")
+    let mut git_clone = Command::new("git");
+    git_clone
         .arg("clone")
-        .arg(format!("https://github.com/{}", package))
+        .arg(format!("https://{}/{}", domain, package));
+    
+    if let Some(b) = branch {
+        git_clone.arg("--branch").arg(b);
+    }
+    
+    let status = git_clone
         .arg(&build_dir)
         .stdout(Stdio::null())
         .status()
         .expect("Git command failed");
 
     if !status.success() {
-        eprintln!("{}", Red.paint("Failed to clone"));
+        eprintln!("{}", Red.paint("Failed to clone repository"));
         return;
     }
 
     println!("\x1b[1m~> Searching for build file\x1b[0m");
-    let (build_system, deps) = if build_dir.join("Makefile").exists() {
-        ("make", parse_make_deps(&build_dir))
+    let makefiles = ["Makefile", "makefile", "GNUMakefile"];
+    let has_makefile = makefiles.iter().any(|f| build_dir.join(f).exists());
+    
+    let (build_system, mut deps) = if has_makefile {
+        ("make", parse_make_deps(&build_dir, &makefiles))
     } else if build_dir.join("Cargo.toml").exists() {
         ("cargo", parse_cargo_deps(&build_dir))
     } else if build_dir.join("CMakeLists.txt").exists() {
@@ -60,6 +122,10 @@ pub fn install(package: &str) {
         eprintln!("{}", Red.paint("No build system found"));
         return;
     };
+
+    if build_system == "make" || build_system == "cmake" {
+        deps.push("make-tool".to_string());
+    }
 
     println!("~> Build file is {}", match build_system {
         "make" => Green.paint("Make"),
@@ -72,30 +138,39 @@ pub fn install(package: &str) {
 
     println!("~> Building...");
     let build_status = match build_system {
-        "make" => Command::new("make")
-            .current_dir(&build_dir)
-            .stdout(Stdio::null())
-            .status()
-            .expect("Make command failed"),
+        "make" => {
+            let makefile = makefiles.iter()
+                .find(|f| build_dir.join(f).exists())
+                .unwrap_or(&"Makefile");
+            
+            Command::new("make")
+                .arg("-f")
+                .arg(makefile)
+                .current_dir(&build_dir)
+                .stdout(Stdio::null())
+                .status()
+                .expect("Make command failed")
+        }
         "cmake" => {
-            let cmake_build_dir = build_dir.join("cmake-build-release");
+            let cmake_build_dir = build_dir.join("build");
             fs::create_dir_all(&cmake_build_dir).expect("Failed to create build dir");
 
             let cmake_status = Command::new("cmake")
+                .arg("-DCMAKE_BUILD_TYPE=Release")
                 .arg("..")
                 .current_dir(&cmake_build_dir)
                 .stdout(Stdio::null())
-                .status()
-                .expect("CMake command failed");
+                .status();
 
-            if !cmake_status.success() {
-                cmake_status
-            } else {
-                Command::new("make")
+            if cmake_status.is_err() || !cmake_status.as_ref().unwrap().success() {
+                Command::new("cmake")
+                    .arg("..")
                     .current_dir(&cmake_build_dir)
                     .stdout(Stdio::null())
                     .status()
-                    .expect("Make command failed")
+                    .expect("CMake command failed")
+            } else {
+                cmake_status.unwrap()
             }
         }
         "cargo" => Command::new("cargo")
@@ -114,50 +189,82 @@ pub fn install(package: &str) {
     }
 
     println!("~> Installing...");
-    let bin_name = format!("{}(radon)", repo);
+    let bin_name = format!("({}){}(radon)", source_str, repo);
     let bin_path = match build_system {
         "make" => build_dir.join(repo),
         "cargo" => build_dir.join("target/release").join(repo),
-        "cmake" => build_dir.join("cmake-build-release").join(repo),
+        "cmake" => build_dir.join("build").join(repo),
         _ => unreachable!()
     };
 
-    let dest = get_bin_path();
-    if dest == Path::new("/usr/bin") {
+    let dest = if local {
+        let home = env::var("HOME").expect("HOME environment variable not set");
+        let path = PathBuf::from(home).join(".local/bin");
+        if !path.exists() {
+            fs::create_dir_all(&path).expect("Failed to create local bin directory");
+        }
+        path
+    } else {
+        PathBuf::from("/usr/local/bin")
+    };
+
+    if !local && dest == Path::new("/usr/bin") {
         println!("{}", Yellow.paint("WARNING: Installing to /usr/bin may cause conflicts"));
     }
 
-    Command::new("sudo")
-        .arg("install")
-        .arg("-m755")
-        .arg(&bin_path)
-        .arg(dest.join(&bin_name))
-        .status()
-        .expect("Installation failed");
+    if local {
+        fs::copy(&bin_path, dest.join(&bin_name))
+            .expect("Failed to copy binary to local directory");
+    } else {
+        Command::new("sudo")
+            .arg("install")
+            .arg("-m755")
+            .arg(&bin_path)
+            .arg(dest.join(&bin_name))
+            .status()
+            .expect("Installation failed");
+    }
 
-    Command::new("sudo")
-        .arg("sh")
-        .arg("-c")
-        .arg(format!("echo {} >> /etc/radon/listinstalled", repo))
-        .status()
-        .expect("Failed to update package list");
+    if !local {
+        Command::new("sudo")
+            .arg("sh")
+            .arg("-c")
+            .arg(format!("echo {} >> /etc/radon/listinstalled", repo))
+            .status()
+            .expect("Failed to update package list");
+    }
 
-println!("{} in {}s", Green.paint("~> INSTALL FINISHED"), start.elapsed().as_secs());
+    println!("{} in {}s", Green.paint("~> INSTALL FINISHED"), start.elapsed().as_secs());
 
-println!(
-    "{}",
-    Yellow.paint(
-        "Warning: radon installs packages to /usr/local/bin by default.\n\
-        If /usr/local/bin is not in your $PATH, you may need to add it by modifying your shell configuration file (e.g., .bashrc, .zshrc).\n\
-        Alternatively, you can move the installed binary manually:\n\
-          sudo cp /usr/local/bin/<package> /usr/bin\n\
-        or\n\
-          doas cp /usr/local/bin/<package> /usr/bin"
-    )
-);
+    if !local {
+        println!(
+            "{}",
+            Yellow.paint(
+                &format!("Warning: radon installs packages to /usr/local/bin by default.\n\
+                If /usr/local/bin is not in your $PATH, you may need to add it.\n\
+                Alternatively, you can move the installed binary manually:\n\
+                  sudo cp /usr/local/bin/{} /usr/bin\n\
+                or\n\
+                  doas cp /usr/local/bin/{} /usr/bin",
+                bin_name, bin_name)
+            )
+        );
+    } else {
+        println!(
+            "{}",
+            Green.paint(
+                "Installed to ~/.local/bin. Make sure this directory is in your PATH."
+            )
+        );
+    }
+}
 
-fn parse_make_deps(dir: &Path) -> Vec<String> {
-    let makefile = fs::read_to_string(dir.join("Makefile")).unwrap_or_default();
+fn parse_make_deps(dir: &Path, makefiles: &[&str]) -> Vec<String> {
+    let found_file = makefiles.iter()
+        .find(|f| dir.join(f).exists())
+        .unwrap_or(&"Makefile");
+    
+    let makefile = fs::read_to_string(dir.join(found_file)).unwrap_or_default();
     makefile
         .lines()
         .find(|l| l.contains("# DEPENDENCIES:"))
@@ -175,7 +282,7 @@ fn parse_make_deps(dir: &Path) -> Vec<String> {
 fn parse_cargo_deps(dir: &Path) -> Vec<String> {
     let cargo_toml = fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default();
     let value = cargo_toml.parse::<Value>().unwrap_or(Value::Table(Map::new()));
-    
+
     value.get("package")
         .and_then(|p| p.get("metadata"))
         .and_then(|m| m.get("radon"))
@@ -188,3 +295,4 @@ fn parse_cargo_deps(dir: &Path) -> Vec<String> {
         })
         .unwrap_or_default()
 }
+
