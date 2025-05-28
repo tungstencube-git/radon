@@ -9,7 +9,25 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    Install { package: String },
-    Remove { package: String },
-    Search { query: String },
+    Install {
+        package: String,
+
+        #[arg(long)]
+        gitlab: bool,
+
+        #[arg(long)]
+        codeberg: bool,
+
+        #[arg(long)]
+        local: bool,
+
+        #[arg(long)]
+        branch: Option<String>,
+    },
+    Remove {
+        package: String,
+    },
+    Search {
+        query: String,
+    },
 }
