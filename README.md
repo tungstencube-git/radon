@@ -1,55 +1,48 @@
-# Radon
+# radon 
+- **r**eally **a**wesome meta package manager f**o**r **n**ix systems (couldnt afford the d)
 
-Package manager for git
+# Features
 
-## Description
+- gitlab github and codeberg support
+- fast awesome building for cargo make and cmake
+- written in rust
+- search option wow!!!
+- better than old fart [gpm](https://github.com/aerys/gpm) (booo!)
+- really cool in general
+- did i menntion that its fully written in rust?
 
-Radon is a package manager for git projects built in rust that compiles from source
+# Overall Project Goals
 
-![Preview](radon.png)
+- getting in offical repos
+- honestly thats all for now lol
 
-# TO-DO 
+# Next Point Release Goals
 
-- [✕] More build system support
-- [✕] Binary tracking
-- [✕] Better search function 
-- [✕] Better readability
-- [✓] GitLab and Codeberg support
+- better search function
+- meson ninja and autotools support
+- os/libc specific and customized build support
+- upgrade command
 
-## Installation
+# Installation
 
-```
-git clone https://github.com/tungstencube-git/radon
-cd radon
-cargo build --release
-sudo (or doas) cp target/release/radon /usr/local/bin (/usr/bin if local/bin is not in path, echo $PATH to check)
+- `git clone https://github.com/tungstencube-git/radon`
+- `cd radon`
+- `cargo build --release`
 
-```
+# Commands
 
-## Contributing
+| Command                           | Description                                                                                                |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `radon`                           | alias to `radon help`.                                                                                       |
+| `radon install <flags> <package>` | self explanatory.                                                               |
+| `radon remove`                    | abolishes package from /usr/local/bin or ~/.local/bin.                                                           |
+| `radon search`                    | searches for packages (only github)                                                            |
+| `radon help <command>`            | help.                                                                  |
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
+# FAQ 
 
-## General Tips
-
-- **Install directory**: Radon installs to /usr/local/bin if in PATH if not in path falls back to /usr/bin if you install a package with radon but get a command not found error run "ls /usr/local/bin | grep radon"
-
-- **Removing packages**: The removing function is currently very primitive, it stores installed packages at /etc/radon/listinstalled if the previously mentioned file is removed radon wont be aware of installed packages
-
-- **Distinguishing**: Radon marks every installed package with (radon) at the end to distinguish between radon installed and non radon installed packages
-
-## Examples
-
-- `radon install user/repo` -- Clones and builds the package at /tmp/radon/builds.
-
-- `radon remove package` -- Removes /usr/local/bin/package(radon) **(SINCE /USR/BIN IS A FALLBACK AND INTERFERES WITH SYSTEM PACKAGE MANAGER THE DIRECTORY IS IGNORED)** 
-
-- `radon search` -- Searches github for repositories
-
-## Community/Support
-
-Radon currently doesnt have a IRC/Subreddit/Discord if the project gets big enough i will create one.
-
-## Debugging
-
-Radon isnt a official git tool, if radon cannot build a package check if you can manually build the package from source, if you cant open a issue about the bug on the repo you are trying to build.
+- why would i use this over regular building from source - makes the building process easier and uses less bandwidth
+- why is the install function not split into multiple files - lazy
+- how does it function - clones repository checks for build system builds clones to /usr/local/bin or ~/.local/bin
+- what wm are you using (yes ik my rice is very cool) - i3
+- how does this compare to ubi - ubi installs binaries (like choccy) this builds from source
