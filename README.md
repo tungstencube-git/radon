@@ -13,17 +13,19 @@
 - really cool in general
 - did i menntion that its fully written in rust?
 
-# Overall Project/Next Few Point Release Goals
+# Overall Project Goal(s)
 
 - getting in offical repos
-- binary tracking
-- radon specific dependency file
-- maybe a naming system like debian
-- honestly thats all for now lol
+- allat for now
 
 # Next Point Release Goals
 
 - meson ninja autotools support
+- binary tracking with hash
+- radon.json dependency file
+- option to show makefile/cargo.toml etc before building
+- list stars/forks before building
+- remove function overhaul
 - search function overhaul
 - upgrade command
 
