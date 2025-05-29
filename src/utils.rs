@@ -1,4 +1,3 @@
-use std::env;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use ansi_term::Colour::Red;
