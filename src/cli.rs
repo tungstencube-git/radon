@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 #[command(name = "radon", version, author, about)]
@@ -23,6 +24,9 @@ pub enum Commands {
 
         #[arg(long)]
         branch: Option<String>,
+
+        #[arg(long)]
+        patches: Option<PathBuf>,
     },
     Remove {
         package: String,
