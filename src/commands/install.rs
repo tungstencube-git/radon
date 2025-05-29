@@ -1,5 +1,3 @@
-// TO-DO - SPLIT TO MULTIPLE FILES
-
 use std::fs;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -7,45 +5,15 @@ use std::process::{Command, Stdio};
 use std::time::Instant;
 use ansi_term::Colour::{Green, Red, Yellow};
 use toml::{Value, map::Map};
+use crate::utils;
 
-fn check_deps(deps: &[String]) {
-    for dep in deps {
-        if dep == "make-tool" {
-            let make_exists = Command::new("make")
-                .arg("--version")
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .status()
-                .is_ok();
-            
-            if !make_exists {
-                eprintln!(
-                    "{}: 'make' not found in PATH",
-                    Red.paint("Error")
-                );
-                std::process::exit(1);
-            }
-            continue;
-        }
-        
-        let status = Command::new("sh")
-            .arg("-c")
-            .arg(format!("command -v {}", dep))
-            .stdout(Stdio::null())
-            .status();
-        
-        if status.map(|s| !s.success()).unwrap_or(true) {
-            eprintln!(
-                "{}: Dependency '{}' is not installed",
-                Red.paint("Error"),
-                dep
-            );
-            std::process::exit(1);
-        }
-    }
-}
-
-pub fn install(package: &str, source: Option<&str>, local: bool, branch: Option<&str>) {
+pub fn install(
+    package: &str,
+    source: Option<&str>,
+    local: bool,
+    branch: Option<&str>,
+    patches: Option<&Path>,
+) {
     let start = Instant::now();
     let tmp = Path::new("/tmp/radon");
     let builds = tmp.join("builds");
@@ -58,7 +26,7 @@ pub fn install(package: &str, source: Option<&str>, local: bool, branch: Option<
     }
 
     if !local && !etc.exists() {
-        Command::new("sudo")
+        Command::new(&utils::get_privilege_command())
             .arg("mkdir")
             .arg("-p")
             .arg(etc)
@@ -92,11 +60,11 @@ pub fn install(package: &str, source: Option<&str>, local: bool, branch: Option<
     git_clone
         .arg("clone")
         .arg(format!("https://{}/{}", domain, package));
-    
+
     if let Some(b) = branch {
         git_clone.arg("--branch").arg(b);
     }
-    
+
     let status = git_clone
         .arg(&build_dir)
         .stdout(Stdio::null())
@@ -108,23 +76,27 @@ pub fn install(package: &str, source: Option<&str>, local: bool, branch: Option<
         return;
     }
 
+    if let Some(patches_dir) = patches {
+        apply_patches(&build_dir, patches_dir);
+    }
+
     println!("\x1b[1m~> Searching for build file\x1b[0m");
     let makefiles = ["Makefile", "makefile", "GNUMakefile"];
     let has_makefile = makefiles.iter().any(|f| build_dir.join(f).exists());
-    
+
     let (build_system, mut deps) = if has_makefile {
         ("make", parse_make_deps(&build_dir, &makefiles))
     } else if build_dir.join("Cargo.toml").exists() {
         ("cargo", parse_cargo_deps(&build_dir))
     } else if build_dir.join("CMakeLists.txt").exists() {
-        ("cmake", vec!["cmake".to_string(), "make".to_string()])
+        ("cmake", vec!["cmake".to_string()])
     } else {
         eprintln!("{}", Red.paint("No build system found"));
         return;
     };
 
     if build_system == "make" || build_system == "cmake" {
-        deps.push("make-tool".to_string());
+        deps.push("make".to_string());
     }
 
     println!("~> Build file is {}", match build_system {
@@ -134,7 +106,7 @@ pub fn install(package: &str, source: Option<&str>, local: bool, branch: Option<
         _ => unreachable!()
     });
 
-    check_deps(&deps);
+utils::check_deps(&deps);
 
     println!("~> Building...");
     let build_status = match build_system {
@@ -142,7 +114,7 @@ pub fn install(package: &str, source: Option<&str>, local: bool, branch: Option<
             let makefile = makefiles.iter()
                 .find(|f| build_dir.join(f).exists())
                 .unwrap_or(&"Makefile");
-            
+
             Command::new("make")
                 .arg("-f")
                 .arg(makefile)
@@ -216,7 +188,7 @@ pub fn install(package: &str, source: Option<&str>, local: bool, branch: Option<
         fs::copy(&bin_path, dest.join(&bin_name))
             .expect("Failed to copy binary to local directory");
     } else {
-        Command::new("sudo")
+        Command::new(&utils::get_privilege_command())
             .arg("install")
             .arg("-m755")
             .arg(&bin_path)
@@ -226,7 +198,7 @@ pub fn install(package: &str, source: Option<&str>, local: bool, branch: Option<
     }
 
     if !local {
-        Command::new("sudo")
+        Command::new(&utils::get_privilege_command())
             .arg("sh")
             .arg("-c")
             .arg(format!("echo {} >> /etc/radon/listinstalled", repo))
@@ -243,10 +215,10 @@ pub fn install(package: &str, source: Option<&str>, local: bool, branch: Option<
                 &format!("Warning: radon installs packages to /usr/local/bin by default.\n\
                 If /usr/local/bin is not in your $PATH, you may need to add it.\n\
                 Alternatively, you can move the installed binary manually:\n\
-                  sudo cp /usr/local/bin/{} /usr/bin\n\
+                  {} cp /usr/local/bin/{} /usr/bin\n\
                 or\n\
                   doas cp /usr/local/bin/{} /usr/bin",
-                bin_name, bin_name)
+                utils::get_privilege_command(), bin_name, bin_name)
             )
         );
     } else {
@@ -263,7 +235,7 @@ fn parse_make_deps(dir: &Path, makefiles: &[&str]) -> Vec<String> {
     let found_file = makefiles.iter()
         .find(|f| dir.join(f).exists())
         .unwrap_or(&"Makefile");
-    
+
     let makefile = fs::read_to_string(dir.join(found_file)).unwrap_or_default();
     makefile
         .lines()
@@ -296,3 +268,27 @@ fn parse_cargo_deps(dir: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn apply_patches(build_dir: &Path, patches_dir: &Path) {
+    let patches: Vec<PathBuf> = fs::read_dir(patches_dir)
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().map(|e| e == "patch").unwrap_or(false))
+        .collect();
+
+    for patch in patches {
+        println!("Applying patch: {}", patch.display());
+        let status = Command::new("patch")
+            .arg("-Np1")
+            .arg("--directory")
+            .arg(build_dir)
+            .arg("--input")
+            .arg(&patch)
+            .status()
+            .expect("Failed to apply patch");
+
+        if !status.success() {
+            eprintln!("{}: Failed to apply {}", Red.paint("Error"), patch.display());
+        }
+    }
+}
