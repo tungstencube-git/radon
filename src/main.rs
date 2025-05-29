@@ -1,9 +1,8 @@
-use clap::Parser;
-
 mod cli;
-mod commands;
 mod utils;
+mod commands;
 
+use clap::Parser;
 use cli::{Cli, Commands};
 use commands::{install, remove, search};
 
@@ -21,6 +20,8 @@ fn main() {
             install::install(&package, source, local, branch.as_deref(), patches.as_deref());
         },
         Commands::Remove { package } => remove::remove(&package),
-        Commands::Search { query } => search::search(&query),
+        Commands::Search { query } => {
+            search::search(&query);
+        },
     }
 }
