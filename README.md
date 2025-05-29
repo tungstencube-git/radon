@@ -53,5 +53,5 @@
 
 # Misc
 
-- [CONTRIBUTING.MD](CONTRIBUTING.MD)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
 -  I am not responsible for bricked devices, dead HDDs, or thermonuclear war.
