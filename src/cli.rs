@@ -1,30 +1,25 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "radon", version, author, about)]
+#[command(version, about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
 }
 
-#[derive(Subcommand)]
+#[derive(Debug, clap::Subcommand)]
 pub enum Commands {
     Install {
         package: String,
-
         #[arg(long)]
         gitlab: bool,
-
         #[arg(long)]
         codeberg: bool,
-
         #[arg(long)]
         local: bool,
-
         #[arg(long)]
         branch: Option<String>,
-
         #[arg(long)]
         patches: Option<PathBuf>,
     },
