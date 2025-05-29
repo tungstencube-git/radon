@@ -59,7 +59,6 @@ pub fn install(
     let mut git_clone = Command::new("git");
     git_clone
         .arg("clone")
-        .arg("--depth=1")
         .arg(format!("https://{}/{}", domain, package));
 
     if let Some(b) = branch {
@@ -107,7 +106,7 @@ pub fn install(
         _ => unreachable!()
     });
 
-    utils::check_deps(&deps);
+utils::check_deps(&deps);
 
     println!("~> Building...");
     let build_status = match build_system {
@@ -146,18 +145,13 @@ pub fn install(
                 cmake_status.unwrap()
             }
         }
-        "cargo" => {
-            let mut cargo_cmd = Command::new("cargo");
-            cargo_cmd
-                .arg("build")
-                .arg("--release")
-                .current_dir(&build_dir)
-                .stdout(Stdio::null());
-            
-            cargo_cmd.env("CARGO_TARGET_DIR", build_dir.join("target"));
-            
-            cargo_cmd.status().expect("Cargo command failed")
-        }
+        "cargo" => Command::new("cargo")
+            .arg("build")
+            .arg("--release")
+            .current_dir(&build_dir)
+            .stdout(Stdio::null())
+            .status()
+            .expect("Cargo command failed"),
         _ => unreachable!()
     };
 
@@ -168,13 +162,12 @@ pub fn install(
 
     println!("~> Installing...");
     let bin_name = format!("({}){}(radon)", source_str, repo);
-    let bin_path = find_binary_path(&build_dir, repo, build_system);
-
-    if bin_path.is_none() {
-        eprintln!("{}: Failed to find built binary", Red.paint("Error"));
-        return;
-    }
-    let bin_path = bin_path.unwrap();
+    let bin_path = match build_system {
+        "make" => build_dir.join(repo),
+        "cargo" => build_dir.join("target/release").join(repo),
+        "cmake" => build_dir.join("build").join(repo),
+        _ => unreachable!()
+    };
 
     let dest = if local {
         let home = env::var("HOME").expect("HOME environment variable not set");
@@ -235,53 +228,6 @@ pub fn install(
                 "Installed to ~/.local/bin. Make sure this directory is in your PATH."
             )
         );
-    }
-}
-
-fn find_binary_path(build_dir: &Path, repo: &str, build_system: &str) -> Option<PathBuf> {
-    match build_system {
-        "make" => {
-            let path = build_dir.join(repo);
-            if path.exists() { Some(path) } else { None }
-        }
-        "cargo" => {
-            let target_dir = build_dir.join("target");
-            if target_dir.exists() {
-                let release_path = target_dir.join("release").join(repo);
-                if release_path.exists() {
-                    return Some(release_path);
-                }
-                
-                if let Ok(entries) = fs::read_dir(&target_dir) {
-                    for entry in entries.filter_map(|e| e.ok()) {
-                        let path = entry.path();
-                        if path.is_dir() {
-                            let bin_path = path.join(repo);
-                            if bin_path.exists() {
-                                return Some(bin_path);
-                            }
-                            
-                            let release_bin = path.join("release").join(repo);
-                            if release_bin.exists() {
-                                return Some(release_bin);
-                            }
-                        }
-                    }
-                }
-            }
-            
-            let debug_path = target_dir.join("debug").join(repo);
-            if debug_path.exists() {
-                return Some(debug_path);
-            }
-            
-            None
-        }
-        "cmake" => {
-            let path = build_dir.join("build").join(repo);
-            if path.exists() { Some(path) } else { None }
-        }
-        _ => None
     }
 }
 
