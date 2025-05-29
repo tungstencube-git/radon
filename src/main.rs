@@ -10,7 +10,7 @@ use commands::{install, remove, search};
 fn main() {
     let cli = Cli::parse();
     match cli.command {
-        Commands::Install { package, gitlab, codeberg, local, branch } => {
+        Commands::Install { package, gitlab, codeberg, local, branch, patches } => {
             let source = if codeberg {
                 Some("codeberg")
             } else if gitlab {
@@ -18,7 +18,7 @@ fn main() {
             } else {
                 None
             };
-            install::install(&package, source, local, branch.as_deref());
+            install::install(&package, source, local, branch.as_deref(), patches.as_deref());
         },
         Commands::Remove { package } => remove::remove(&package),
         Commands::Search { query } => search::search(&query),
