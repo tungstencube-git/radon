@@ -1,5 +1,6 @@
 # radon 
 - **r**eally **a**wesome meta package manager f**o**r **n**ix systems (couldnt afford the d)
+- formerly wolfram/scheele
 
 # Features
 
@@ -11,9 +12,12 @@
 - really cool in general
 - did i menntion that its fully written in rust?
 
-# Overall Project Goals
+# Overall Project/Next Few Point Release Goals
 
 - getting in offical repos
+- binary tracking
+- radon specific dependency file
+- maybe a naming system like debian
 - honestly thats all for now lol
 
 # Next Point Release Goals
