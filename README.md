@@ -50,3 +50,8 @@
 - how does it function - clones repository checks for build system builds clones to /usr/local/bin or ~/.local/bin
 - what wm are you using (yes ik my rice is very cool) - i3
 - how does this compare to ubi - ubi installs binaries (like choccy) this builds from source
+
+# Misc
+
+- [CONTRIBUTING.MD](CONTRIBUTING.MD)
+-  I am not responsible for bricked devices, dead HDDs, or thermonuclear war.
