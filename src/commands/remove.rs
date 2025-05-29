@@ -1,41 +1,67 @@
+use std::env;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use ansi_term::Colour::{Green, Red};
 
-use crate::utils::{get_bin_path, get_privilege_command};
+use crate::utils::get_privilege_command;
+
+fn get_local_bin_path() -> PathBuf {
+    env::var("HOME")
+        .map(|home| PathBuf::from(home).join(".local/bin"))
+        .expect("HOME environment variable not set")
+}
 
 pub fn remove(package: &str) {
     let privilege_cmd = get_privilege_command();
-    let bin_path = get_bin_path();
-    let bin_name = format!("{}(radon)", package);
-    let installed_bin = bin_path.join(&bin_name);
-
-    if !installed_bin.exists() {
-        eprintln!("{}", Red.paint("Package not installed"));
-        return;
-    }
-
-    let status = Command::new(&privilege_cmd)
-        .arg("rm")
-        .arg("-f")
-        .arg(&installed_bin)
-        .status()
-        .expect("Failed to remove binary");
-
-    if !status.success() {
-        eprintln!("{}", Red.paint("Failed to remove binary"));
-        return;
-    }
-
+    let system_bin_path = Path::new("/usr/local/bin");
+    let local_bin_path = get_local_bin_path();
     let list_path = Path::new("/etc/radon/listinstalled");
     let temp_list = Path::new("/tmp/radon_listinstalled.tmp");
+
+    let installed_bins: Vec<PathBuf> = [system_bin_path, &local_bin_path]
+        .iter()
+        .flat_map(|path| {
+            fs::read_dir(path).ok().map(|entries| {
+                entries.filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.file_name()
+                            .and_then(|f| f.to_str())
+                            .map(|name| name.contains(package) && name.ends_with("(radon)"))
+                            .unwrap_or(false)
+                    })
+                    .collect::<Vec<_>>()
+            })
+        })
+        .flatten()
+        .collect();
+
+    if installed_bins.is_empty() {
+        eprintln!("{}: Package '{}' not found", Red.paint("Error"), package);
+        return;
+    }
+
+    for bin_path in &installed_bins {
+        if bin_path.starts_with("/usr/local/bin") {
+            Command::new(&privilege_cmd)
+                .arg("rm")
+                .arg("-f")
+                .arg(bin_path)
+                .status()
+                .expect("Failed to remove system binary");
+        } else {
+            fs::remove_file(bin_path)
+                .unwrap_or_else(|_| panic!("Failed to remove local binary: {:?}", bin_path));
+        }
+        println!("Removed: {}", bin_path.display());
+    }
 
     match fs::read_to_string(list_path) {
         Ok(content) => {
             let new_content: String = content
                 .lines()
-                .filter(|line| line.trim() != package)
+                .filter(|line| !line.contains(package))
                 .collect::<Vec<_>>()
                 .join("\n");
 
@@ -56,6 +82,9 @@ pub fn remove(package: &str) {
             } else {
                 eprintln!("{}", Red.paint("Failed to update installed list"));
             }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            println!("{}", Green.paint("~> Removed successfully"));
         }
         Err(e) => eprintln!("{}: {}", Red.paint("Failed to read installed list"), e),
     }
