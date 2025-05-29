@@ -1,6 +1,7 @@
 # radon 
 - **r**eally **a**wesome meta package manager f**o**r **n**ix systems (couldnt afford the d)
 - formerly wolfram/scheele
+- current version 1.0 - tuz (not tux!!!) 
 
 # Features
 
@@ -22,9 +23,8 @@
 
 # Next Point Release Goals
 
-- better search function
-- meson ninja and autotools support
-- os/libc specific and customized build support
+- meson ninja autotools support
+- search function overhaul
 - upgrade command
 
 # Installation
