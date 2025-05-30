@@ -24,6 +24,7 @@
 - binary tracking with hash for remove
 - radon.json dependency file
 - remove function overhaul
+- customizable build (wlsroots without xwayland)
 
 # Installation
 
