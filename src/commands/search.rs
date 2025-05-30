@@ -1,5 +1,6 @@
 use reqwest::blocking::get;
 use serde_json::Value;
+use ansi_term::Style;
 
 pub fn search(query: &str) {
     let resp: Value = get(&format!(
