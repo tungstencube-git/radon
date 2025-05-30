@@ -4,9 +4,10 @@ mod commands;
 
 use clap::Parser;
 use cli::{Cli, Commands};
-use commands::{install, remove, search};
+use commands::{install, remove, search, list, upgrade};
 
 fn main() {
+    utils::setup_radon_dirs();
     let cli = Cli::parse();
     match cli.command {
         Commands::Install { package, gitlab, codeberg, local, branch, patches } => {
@@ -23,5 +24,7 @@ fn main() {
         Commands::Search { query } => {
             search::search(&query);
         },
+        Commands::List => list::list(),
+        Commands::Upgrade { all, package } => upgrade::upgrade(all, package.as_deref()),
     }
 }
