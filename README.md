@@ -40,7 +40,9 @@
 | `radon install <flags> <package>` | self explanatory.                                                               |
 | `radon remove`                    | abolishes package from /usr/local/bin or ~/.local/bin.                                                           |
 | `radon search`                    | searches for packages (only github)                                                            |
-| `radon help <command>`            | help.                                                                  |
+| `radon help <command>`   | help.                                                                  |
+| `radon list`             | lists installed packages
+| `radon upgrade`          | upgrades installed packages
 
 # FAQ 
 
