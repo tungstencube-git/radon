@@ -3,8 +3,10 @@ use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
+use std::io::{self, Write};
 use ansi_term::Colour::{Green, Red, Yellow};
 use toml::{Value, map::Map};
+use sha2::{Sha256, Digest};
 use crate::utils;
 
 pub fn install(
@@ -25,27 +27,10 @@ pub fn install(
         }
     }
 
-    if !local && !etc.exists() {
-        Command::new(&utils::get_privilege_command())
-            .arg("mkdir")
-            .arg("-p")
-            .arg(etc)
-            .status()
-            .expect("Failed to create system directory");
-    }
-
     let (source_str, domain) = match source {
         Some("gitlab") => ("gitlab", "gitlab.com"),
         Some("codeberg") => ("codeberg", "codeberg.org"),
-        _ => {
-            if source.is_none() {
-                println!(
-                    "{}: No source specified, falling back to GitHub",
-                    Yellow.paint("Warning")
-                );
-            }
-            ("github", "github.com")
-        }
+        _ => ("github", "github.com")
     };
 
     let repo = package.split('/').last().unwrap();
@@ -91,6 +76,10 @@ pub fn install(
         ("cargo", parse_cargo_deps(&build_dir))
     } else if build_dir.join("CMakeLists.txt").exists() {
         ("cmake", vec!["cmake".to_string()])
+    } else if build_dir.join("meson.build").exists() {
+        ("meson", vec!["meson".to_string(), "ninja".to_string()])
+    } else if build_dir.join("build.ninja").exists() {
+        ("ninja", vec!["ninja".to_string()])
     } else {
         eprintln!("{}", Red.paint("No build system found"));
         return;
@@ -104,8 +93,45 @@ pub fn install(
         "make" => Green.paint("Make"),
         "cargo" => Green.paint("Cargo"),
         "cmake" => Green.paint("CMake"),
+        "meson" => Green.paint("Meson"),
+        "ninja" => Green.paint("Ninja"),
         _ => unreachable!()
     });
+
+    let build_file = match build_system {
+        "make" => makefiles.iter().find(|f| build_dir.join(f).exists()).map(|f| f.to_string()),
+        "cargo" => Some("Cargo.toml".to_string()),
+        "cmake" => Some("CMakeLists.txt".to_string()),
+        "meson" => Some("meson.build".to_string()),
+        "ninja" => Some("build.ninja".to_string()),
+        _ => None,
+    };
+
+    if let Some(file) = &build_file {
+        let file_path = build_dir.join(file);
+        if file_path.exists() {
+            println!("~> Showing build file: {}", file);
+            let status = Command::new("less")
+                .arg(&file_path)
+                .status();
+
+            if status.is_err() || !status.unwrap().success() {
+                let _ = Command::new("cat")
+                    .arg(&file_path)
+                    .status();
+            }
+
+            print!("~> Proceed with build? [Y/n] ");
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+
+            if input.trim().eq_ignore_ascii_case("n") {
+                println!("{}", Yellow.paint("Build cancelled by user"));
+                return;
+            }
+        }
+    }
 
     utils::check_deps(&deps);
 
@@ -160,6 +186,40 @@ pub fn install(
 
             cargo_cmd.status().expect("Cargo command failed")
         }
+        "meson" => {
+            let meson_build_dir = build_dir.join("build");
+            fs::create_dir_all(&meson_build_dir).expect("Failed to create build dir");
+
+            let meson_status = Command::new("meson")
+                .arg("setup")
+                .arg(&meson_build_dir)
+                .current_dir(&build_dir)
+                .stdout(Stdio::null())
+                .status();
+
+            if meson_status.is_err() || !meson_status.as_ref().unwrap().success() {
+                Command::new("meson")
+                    .arg(&meson_build_dir)
+                    .current_dir(&build_dir)
+                    .stdout(Stdio::null())
+                    .status()
+                    .expect("Meson setup failed");
+            }
+
+            Command::new("ninja")
+                .arg("-C")
+                .arg(&meson_build_dir)
+                .stdout(Stdio::null())
+                .status()
+                .expect("Ninja build failed")
+        }
+        "ninja" => {
+            Command::new("ninja")
+                .current_dir(&build_dir)
+                .stdout(Stdio::null())
+                .status()
+                .expect("Ninja build failed")
+        }
         _ => unreachable!()
     };
 
@@ -189,8 +249,8 @@ pub fn install(
         PathBuf::from("/usr/local/bin")
     };
 
-    if !local && dest == Path::new("/usr/bin") {
-        println!("{}", Yellow.paint("WARNING: Installing to /usr/bin may cause conflicts"));
+    if !local {
+        println!("{}", Yellow.paint("WARNING: Installing system-wide"));
     }
 
     if local {
@@ -210,9 +270,56 @@ pub fn install(
         Command::new(&utils::get_privilege_command())
             .arg("sh")
             .arg("-c")
-            .arg(format!("echo {} >> /etc/radon/listinstalled", repo))
+            .arg(format!("echo '{}' >> /etc/radon/installed", repo))
             .status()
             .expect("Failed to update package list");
+    }
+
+    if !local && build_file.is_some() {
+        let buildfile_dir = Path::new("/var/lib/radon/buildfiles").join(repo);
+        let status = Command::new(&utils::get_privilege_command())
+            .arg("mkdir")
+            .arg("-p")
+            .arg(&buildfile_dir)
+            .status();
+        
+        if status.is_ok() && status.unwrap().success() {
+            let status = Command::new(&utils::get_privilege_command())
+                .arg("cp")
+                .arg("-r")
+                .arg(&build_dir)
+                .arg(&buildfile_dir)
+                .status();
+
+            if status.is_ok() && status.unwrap().success() {
+                let mut metadata = format!("repo_url = \"https://{}/{}\"\n", domain, package);
+                metadata += &format!("build_file = \"{}\"\n", build_file.as_ref().unwrap());
+
+                if let Some(bf) = &build_file {
+                    let content = fs::read(build_dir.join(bf)).unwrap_or_default();
+                    let mut hasher = Sha256::new();
+                    hasher.update(&content);
+                    let hash = format!("{:x}", hasher.finalize());
+                    metadata += &format!("hash = \"{}\"\n", hash);
+                }
+
+                if build_system == "cargo" {
+                    let cargo_toml = fs::read_to_string(build_dir.join("Cargo.toml")).unwrap_or_default();
+                    if let Some(version) = cargo_toml.lines().find(|l| l.starts_with("version = ")) {
+                        metadata += &format!("version = \"{}\"\n", version.split('"').nth(1).unwrap_or(""));
+                    }
+                }
+
+                let temp_meta = Path::new("/tmp").join(format!("{}-metadata.toml", repo));
+                fs::write(&temp_meta, metadata).unwrap_or_default();
+                
+                let _ = Command::new(&utils::get_privilege_command())
+                    .arg("mv")
+                    .arg(&temp_meta)
+                    .arg(buildfile_dir.join("metadata.toml"))
+                    .status();
+            }
+        }
     }
 
     println!("{} in {}s", Green.paint("~> INSTALL FINISHED"), start.elapsed().as_secs());
@@ -283,8 +390,36 @@ fn find_binary_path(build_dir: &Path, repo: &str, build_system: &str) -> Option<
             let path = build_dir.join("build").join(repo);
             if path.exists() { Some(path) } else { None }
         }
+        "meson" => {
+            let build_output_dir = build_dir.join("build");
+            find_executable_in_dir(&build_output_dir, repo)
+        }
+        "ninja" => {
+            let path = build_dir.join(repo);
+            if path.exists() { Some(path) } else { None }
+        }
         _ => None
     }
+}
+
+fn find_executable_in_dir(dir: &Path, name: &str) -> Option<PathBuf> {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(exec) = find_executable_in_dir(&path, name) {
+                    return Some(exec);
+                }
+            } else if path.is_file() {
+                if let Some(filename) = path.file_name() {
+                    if filename == name {
+                        return Some(path);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn parse_make_deps(dir: &Path, makefiles: &[&str]) -> Vec<String> {
