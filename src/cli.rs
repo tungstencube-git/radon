@@ -29,4 +29,11 @@ pub enum Commands {
     Search {
         query: String,
     },
+    List,
+    Upgrade {
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        package: Option<String>,
+    },
 }
