@@ -1,3 +1,4 @@
+use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use ansi_term::Colour::Red;
@@ -59,5 +60,52 @@ pub fn get_privilege_command() -> String {
         "doas".into()
     } else {
         "sudo".into()
+    }
+}
+
+pub fn setup_radon_dirs() {
+    let etc_radon = Path::new("/etc/radon");
+    let var_lib_radon = Path::new("/var/lib/radon");
+    let buildfiles = var_lib_radon.join("buildfiles");
+    
+    if !etc_radon.exists() {
+        let status = Command::new(&get_privilege_command())
+            .arg("mkdir")
+            .arg("-p")
+            .arg(etc_radon)
+            .status();
+        if status.is_ok() && status.unwrap().success() {
+            let _ = Command::new(&get_privilege_command())
+                .arg("touch")
+                .arg(etc_radon.join("installed"))
+                .status();
+        }
+    }
+
+    if !var_lib_radon.exists() {
+        let _ = Command::new(&get_privilege_command())
+            .arg("mkdir")
+            .arg("-p")
+            .arg(&buildfiles)
+            .status();
+    } else if !buildfiles.exists() {
+        let _ = Command::new(&get_privilege_command())
+            .arg("mkdir")
+            .arg("-p")
+            .arg(&buildfiles)
+            .status();
+    }
+}
+
+pub fn get_installed_packages() -> Vec<String> {
+    let path = Path::new("/etc/radon/installed");
+    if path.exists() {
+        fs::read_to_string(path)
+            .unwrap_or_default()
+            .lines()
+            .map(|s| s.to_string())
+            .collect()
+    } else {
+        Vec::new()
     }
 }
