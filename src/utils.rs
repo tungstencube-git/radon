@@ -57,8 +57,36 @@ pub fn get_privilege_command() -> String {
         .unwrap_or(false);
 
     if doas_available {
-        "doas".into()
+        return "doas".into();
+    }
+
+    let sudo_available = Command::new("sh")
+        .arg("-c")
+        .arg("command -v sudo")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if sudo_available {
+        return "sudo".into();
+    }
+
+    "sudo".into()
+}
+
+pub fn execute_privileged_command(args: &[&str]) -> std::io::Result<std::process::ExitStatus> {
+    let privilege_cmd = get_privilege_command();
+
+    if privilege_cmd == "su" {
+        Command::new("su")
+            .arg("-c")
+            .arg(args.join(" "))
+            .status()
     } else {
-        "sudo".into()
+        Command::new(privilege_cmd)
+            .args(args)
+            .status()
     }
 }

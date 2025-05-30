@@ -29,11 +29,11 @@ pub fn install(
     }
 
     if !local && !etc.exists() {
-        Command::new(&utils::get_privilege_command())
-            .arg("mkdir")
-            .arg("-p")
-            .arg(etc)
-            .status()
+        utils::execute_privileged_command(&[
+            "mdkir",
+            "-p",
+            etc.to_str().unwrap()
+        ])
             .expect("Failed to create system directory");
     }
 
@@ -191,21 +191,21 @@ utils::check_deps(&deps);
         fs::copy(&bin_path, dest.join(&bin_name))
             .expect("Failed to copy binary to local directory");
     } else {
-        Command::new(&utils::get_privilege_command())
-            .arg("install")
-            .arg("-m755")
-            .arg(&bin_path)
-            .arg(dest.join(&bin_name))
-            .status()
+        utils::execute_privileged_command(&[
+            "install",
+            "-m755",
+            (&bin_path).to_str().unwrap(),
+            (&dest.join(&bin_name)).to_str().unwrap()
+        ])
             .expect("Installation failed");
     }
 
     if !local {
-        Command::new(&utils::get_privilege_command())
-            .arg("sh")
-            .arg("-c")
-            .arg(format!("echo {} >> /etc/radon/listinstalled", repo))
-            .status()
+        utils::execute_privileged_command(&[
+            "sh",
+            "-c",
+            &format!("echo {} >> /etc/radon/listinstalled", repo)
+        ])
             .expect("Failed to update package list");
     }
 
