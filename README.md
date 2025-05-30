@@ -1,7 +1,7 @@
 # radon 
 - **r**eally **a**wesome meta package manager f**o**r **n**ix systems (couldnt afford the d)
 - formerly wolfram/scheele
-- current version 1.0 - tuz (not tux!!!) 
+- current version 2.0 - [hexley](http://www.hexley.com/)
 
 # Features
 
@@ -20,14 +20,10 @@
 
 # Next Point Release Goals
 
-- meson ninja autotools support
-- binary tracking with hash
+- autotools support
+- binary tracking with hash for remove
 - radon.json dependency file
-- option to show makefile/cargo.toml etc before building
-- list stars/forks before building
 - remove function overhaul
-- search function overhaul
-- upgrade command
 
 # Installation
 
