@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Instant;
 use ansi_term::Colour::{Green, Red, Yellow};
+use ansi_term::Style;
 use toml::{Value, map::Map};
 use crate::utils;
 
@@ -18,6 +19,8 @@ pub fn install(
     let tmp = Path::new("/tmp/radon");
     let builds = tmp.join("builds");
     let etc = Path::new("/etc/radon");
+
+    let bold = Style::new().bold();
 
     for dir in [tmp, &builds] {
         if !dir.exists() {
@@ -55,7 +58,7 @@ pub fn install(
         fs::remove_dir_all(&build_dir).expect("Failed to clean previous build");
     }
 
-    println!("\x1b[1m~> Cloning repository\x1b[0m");
+    println!("{}", bold.paint("~> Cloning repository"));
     let mut git_clone = Command::new("git");
     git_clone
         .arg("clone")
@@ -80,7 +83,7 @@ pub fn install(
         apply_patches(&build_dir, patches_dir);
     }
 
-    println!("\x1b[1m~> Searching for build file\x1b[0m");
+    println!("{}", bold.paint("~> Searching for build file"));
     let makefiles = ["Makefile", "makefile", "GNUMakefile"];
     let has_makefile = makefiles.iter().any(|f| build_dir.join(f).exists());
 
@@ -99,7 +102,7 @@ pub fn install(
         deps.push("make".to_string());
     }
 
-    println!("~> Build file is {}", match build_system {
+    println!("{} {}", bold.paint("~> Build file is"), match build_system {
         "make" => Green.paint("Make"),
         "cargo" => Green.paint("Cargo"),
         "cmake" => Green.paint("CMake"),
@@ -108,7 +111,7 @@ pub fn install(
 
 utils::check_deps(&deps);
 
-    println!("~> Building...");
+    println!("{}", bold.paint("~> Building..."));
     let build_status = match build_system {
         "make" => {
             let makefile = makefiles.iter()
@@ -160,7 +163,7 @@ utils::check_deps(&deps);
         return;
     }
 
-    println!("~> Installing...");
+    println!("{}", bold.paint("~> Installing..."));
     let bin_name = format!("({}){}(radon)", source_str, repo);
     let bin_path = match build_system {
         "make" => build_dir.join(repo),

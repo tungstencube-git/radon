@@ -10,9 +10,11 @@ pub fn search(query: &str) {
     .json()
     .unwrap_or_default();
 
+    let bold = Style::new().bold();
+
     for item in resp["items"].as_array().unwrap_or(&vec![]) {
         if let Some(name) = item["full_name"].as_str() {
-            println!("\x1b[1m{}\x1b[0m", name);
+            println!("{}", bold.paint(name));
         }
     }
 }
