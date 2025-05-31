@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use ansi_term::Colour::{Green, Red};
+use crate::cli::RemoveTarget;
 
 use crate::utils::get_privilege_command;
 
@@ -12,12 +13,29 @@ fn get_local_bin_path() -> PathBuf {
         .expect("HOME environment variable not set")
 }
 
-pub fn remove(package: &str) {
+pub fn remove(target: RemoveTarget) {
+    match target {
+        RemoveTarget::Package { package } => remove_package(&package),
+        RemoveTarget::Cache => remove_cache(),
+    }
+}
+
+pub fn remove_cache() {
+    let tmp_radon = Path::new("/tmp/radon");
+    if tmp_radon.exists() {
+        fs::remove_dir_all(tmp_radon).expect("Failed to remove cache");
+        println!("{}", Green.paint("Cache removed successfully"));
+    } else {
+        println!("{}", Green.paint("Cache already clean"));
+    }
+}
+
+pub fn remove_package(package: &str) {
     let privilege_cmd = get_privilege_command();
     let system_bin_path = Path::new("/usr/local/bin");
     let local_bin_path = get_local_bin_path();
-    let list_path = Path::new("/etc/radon/listinstalled");
-    let temp_list = Path::new("/tmp/radon_listinstalled.tmp");
+    let list_path = Path::new("/etc/radon/installed");
+    let temp_list = Path::new("/tmp/radon_installed.tmp");
 
     let installed_bins: Vec<PathBuf> = [system_bin_path, &local_bin_path]
         .iter()
