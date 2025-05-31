@@ -20,11 +20,11 @@ fn main() {
             };
             install::install(&package, source, local, branch.as_deref(), patches.as_deref());
         },
-        Commands::Remove { package } => remove::remove(&package),
+        Commands::Remove { target } => remove::remove(target),
         Commands::Search { query } => {
             search::search(&query);
         },
         Commands::List => list::list(),
-        Commands::Upgrade { all, package } => upgrade::upgrade(all, package.as_deref()),
+        Commands::Upgrade { target } => upgrade::upgrade(target),
     }
 }
