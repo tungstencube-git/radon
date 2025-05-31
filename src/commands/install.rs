@@ -2,11 +2,12 @@ use std::fs;
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::Instant;
 use std::io::{self, Write};
+use std::time::Instant;
 use ansi_term::Colour::{Green, Red, Yellow};
 use toml::{Value, map::Map};
 use sha2::{Sha256, Digest};
+use toml::Table;
 use crate::utils;
 
 pub fn install(
@@ -347,57 +348,78 @@ pub fn install(
     }
 }
 
-fn find_binary_path(build_dir: &Path, repo: &str, build_system: &str) -> Option<PathBuf> {
-    match build_system {
-        "make" => {
-            let path = build_dir.join(repo);
-            if path.exists() { Some(path) } else { None }
-        }
-        "cargo" => {
-            let target_dir = build_dir.join("target");
-            if target_dir.exists() {
-                let release_path = target_dir.join("release").join(repo);
-                if release_path.exists() {
-                    return Some(release_path);
-                }
+fn get_cargo_binary_name(build_dir: &Path) -> Option<String> {
+    let cargo_toml = build_dir.join("Cargo.toml");
+    let content = match fs::read_to_string(&cargo_toml) {
+        Ok(c) => c,
+        Err(_) => return None,
+    };
 
-                if let Ok(entries) = fs::read_dir(&target_dir) {
-                    for entry in entries.filter_map(|e| e.ok()) {
-                        let path = entry.path();
-                        if path.is_dir() {
-                            let bin_path = path.join(repo);
-                            if bin_path.exists() {
-                                return Some(bin_path);
-                            }
+    let value: Table = match content.parse() {
+        Ok(v) => v,
+        Err(_) => return None,
+    };
 
-                            let release_bin = path.join("release").join(repo);
-                            if release_bin.exists() {
-                                return Some(release_bin);
-                            }
+    if let Some(bins) = value.get("bin") {
+        if let Some(bin_array) = bins.as_array() {
+            for bin_entry in bin_array {
+                if let Some(bin_table) = bin_entry.as_table() {
+                    if let Some(name) = bin_table.get("name") {
+                        if let Some(name_str) = name.as_str() {
+                            return Some(name_str.to_string());
                         }
                     }
                 }
             }
+        }
+    }
 
-            let debug_path = target_dir.join("debug").join(repo);
+    if let Some(package) = value.get("package") {
+        if let Some(package_table) = package.as_table() {
+            if let Some(name) = package_table.get("name") {
+                if let Some(name_str) = name.as_str() {
+                    return Some(name_str.to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn find_binary_path(build_dir: &Path, repo: &str, build_system: &str) -> Option<PathBuf> {
+    match build_system {
+        "cargo" => {
+            let binary_name = get_cargo_binary_name(build_dir).unwrap_or_else(|| repo.to_string());
+            let release_path = build_dir.join("target/release").join(&binary_name);
+            
+            if release_path.exists() {
+                return Some(release_path);
+            }
+            
+            let debug_path = build_dir.join("target/debug").join(&binary_name);
             if debug_path.exists() {
                 return Some(debug_path);
             }
-
+            
             None
-        }
+        },
+        "make" => {
+            let path = build_dir.join(repo);
+            if path.exists() { Some(path) } else { None }
+        },
         "cmake" => {
             let path = build_dir.join("build").join(repo);
             if path.exists() { Some(path) } else { None }
-        }
+        },
         "meson" => {
             let build_output_dir = build_dir.join("build");
             find_executable_in_dir(&build_output_dir, repo)
-        }
+        },
         "ninja" => {
             let path = build_dir.join(repo);
             if path.exists() { Some(path) } else { None }
-        }
+        },
         _ => None
     }
 }
