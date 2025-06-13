@@ -8,7 +8,7 @@ pub fn list() {
         println!("No packages installed");
     } else {
         for pkg in packages {
-            println!("- {}", pkg);
+            println!("- {} ({})", pkg.name, pkg.build_system);
         }
     }
 }
