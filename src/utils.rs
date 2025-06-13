@@ -1,7 +1,19 @@
-use std::fs;
+use std::fs::{self, File};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use ansi_term::Colour::Red;
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize)]
+pub struct InstalledPackage {
+    pub name: String,
+    pub source: Option<String>,
+    pub build_system: String,
+    pub location: String,
+    pub build_file: Option<String>,
+    pub hash: Option<String>,
+    pub version: Option<String>,
+}
 
 pub fn check_deps(deps: &[String]) {
     let missing: Vec<&str> = deps
@@ -77,7 +89,7 @@ pub fn setup_radon_dirs() {
         if status.is_ok() && status.unwrap().success() {
             let _ = Command::new(&get_privilege_command())
                 .arg("touch")
-                .arg(etc_radon.join("installed"))
+                .arg(etc_radon.join("installed.yaml"))
                 .status();
         }
     }
@@ -97,14 +109,11 @@ pub fn setup_radon_dirs() {
     }
 }
 
-pub fn get_installed_packages() -> Vec<String> {
-    let path = Path::new("/etc/radon/installed");
+pub fn get_installed_packages() -> Vec<InstalledPackage> {
+    let path = Path::new("/etc/radon/installed.yaml");
     if path.exists() {
-        fs::read_to_string(path)
-            .unwrap_or_default()
-            .lines()
-            .map(|s| s.to_string())
-            .collect()
+        let file = File::open(path).expect("Failed to open installed.yaml");
+        serde_yaml::from_reader(file).unwrap_or_else(|_| vec![])
     } else {
         Vec::new()
     }
