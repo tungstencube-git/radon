@@ -1,7 +1,7 @@
 # radon 
 - **r**eally **a**wesome meta package manager f**o**r **n**ix systems (couldnt afford the d)
 - formerly wolfram/scheele
-- current version 2.0 - [hexley](http://www.hexley.com/)
+- current version 3.0 - [puffy](https://en.wikipedia.org/wiki/OpenBSD#Songs_and_artwork)
 
 # Features
 
