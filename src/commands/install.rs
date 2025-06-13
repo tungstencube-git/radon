@@ -8,6 +8,7 @@ use ansi_term::Colour::{Green, Red, Yellow};
 use toml::{Value, map::Map};
 use sha2::{Sha256, Digest};
 use toml::Table;
+use serde_json;
 use crate::utils;
 
 pub fn install(
@@ -16,6 +17,7 @@ pub fn install(
     local: bool,
     branch: Option<&str>,
     patches: Option<&Path>,
+    flags: &[String],
 ) {
     let start = Instant::now();
     let tmp = Path::new("/tmp/radon");
@@ -71,81 +73,130 @@ pub fn install(
     let makefiles = ["Makefile", "makefile", "GNUMakefile"];
     let has_makefile = makefiles.iter().any(|f| build_dir.join(f).exists());
 
-    let (build_system, mut deps) = if has_makefile {
-        ("make", parse_make_deps(&build_dir, &makefiles))
+    let radon_json_path = build_dir.join("radon.json");
+    let (build_system, mut deps, custom_flags) = if radon_json_path.exists() {
+        parse_radon_json(&radon_json_path)
+    } else if has_makefile {
+        ("make".to_string(), parse_make_deps(&build_dir, &makefiles), vec![])
+    } else if build_dir.join("configure").exists() {
+        ("autotools".to_string(), parse_autotools_deps(&build_dir), vec![])
     } else if build_dir.join("Cargo.toml").exists() {
-        ("cargo", parse_cargo_deps(&build_dir))
+        ("cargo".to_string(), parse_cargo_deps(&build_dir), vec![])
     } else if build_dir.join("CMakeLists.txt").exists() {
-        ("cmake", vec!["cmake".to_string()])
+        ("cmake".to_string(), vec!["cmake".to_string()], vec![])
     } else if build_dir.join("meson.build").exists() {
-        ("meson", vec!["meson".to_string(), "ninja".to_string()])
+        ("meson".to_string(), vec!["meson".to_string(), "ninja".to_string()], vec![])
     } else if build_dir.join("build.ninja").exists() {
-        ("ninja", vec!["ninja".to_string()])
+        ("ninja".to_string(), vec!["ninja".to_string()], vec![])
+    } else if build_dir.join("*.nimble").exists() {
+        ("nimble".to_string(), vec!["nim".to_string(), "nimble".to_string()], vec![])
+    } else if build_dir.join("stack.yaml").exists() {
+        ("stack".to_string(), vec!["stack".to_string()], vec![])
     } else {
         eprintln!("{}", Red.paint("No build system found"));
         return;
     };
 
-    if build_system == "make" || build_system == "cmake" {
-        deps.push("make".to_string());
-    }
+    let mut final_flags = custom_flags;
+    final_flags.extend(flags.iter().cloned());
 
-    println!("~> Build file is {}", match build_system {
+    println!("~> Build file is {}", match build_system.as_str() {
         "make" => Green.paint("Make"),
+        "autotools" => Green.paint("Autotools"),
         "cargo" => Green.paint("Cargo"),
         "cmake" => Green.paint("CMake"),
         "meson" => Green.paint("Meson"),
         "ninja" => Green.paint("Ninja"),
+        "nimble" => Green.paint("Nimble"),
+        "stack" => Green.paint("Stack"),
         _ => unreachable!()
     });
 
-    let build_file = match build_system {
+    let build_file = match build_system.as_str() {
         "make" => makefiles.iter().find(|f| build_dir.join(f).exists()).map(|f| f.to_string()),
+        "autotools" => Some("configure".to_string()),
         "cargo" => Some("Cargo.toml".to_string()),
         "cmake" => Some("CMakeLists.txt".to_string()),
         "meson" => Some("meson.build".to_string()),
         "ninja" => Some("build.ninja".to_string()),
+        "nimble" => build_dir.join("*.nimble").exists().then(|| "*.nimble".to_string()),
+        "stack" => Some("stack.yaml".to_string()),
         _ => None,
     };
 
     if let Some(file) = &build_file {
-        let file_path = build_dir.join(file);
-        if file_path.exists() {
-            println!("~> Showing build file: {}", file);
-            let status = Command::new("less")
-                .arg(&file_path)
-                .status();
+        let file_path = if file == "*.nimble" {
+            let nimble_files: Vec<_> = fs::read_dir(&build_dir)
+                .unwrap()
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .filter(|p| p.extension().map(|e| e == "nimble").unwrap_or(false))
+                .collect();
+            if nimble_files.is_empty() {
+                None
+            } else {
+                nimble_files.get(0).cloned()
+            }
+        } else {
+            Some(build_dir.join(file))
+        };
 
-            if status.is_err() || !status.unwrap().success() {
-                let _ = Command::new("cat")
+        if let Some(file_path) = file_path {
+            if file_path.exists() {
+                println!("~> Showing build file: {}", file);
+                let status = Command::new("less")
                     .arg(&file_path)
                     .status();
-            }
 
-            print!("~> Proceed with build? [Y/n] ");
-            io::stdout().flush().unwrap();
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).unwrap();
+                if status.is_err() || !status.unwrap().success() {
+                    let _ = Command::new("cat")
+                        .arg(&file_path)
+                        .status();
+                }
 
-            if input.trim().eq_ignore_ascii_case("n") {
-                println!("{}", Yellow.paint("Build cancelled by user"));
-                return;
+                print!("~> Proceed with build? [Y/n] ");
+                io::stdout().flush().unwrap();
+                let mut input = String::new();
+                io::stdin().read_line(&mut input).unwrap();
+
+                if input.trim().eq_ignore_ascii_case("n") {
+                    println!("{}", Yellow.paint("Build cancelled by user"));
+                    return;
+                }
             }
         }
     }
 
     utils::check_deps(&deps);
 
-    println!("~> Building...");
-    let build_status = match build_system {
+    println!("~> Building with flags: {:?}", final_flags);
+    let build_status = match build_system.as_str() {
         "make" => {
             let makefile = makefiles.iter()
                 .find(|f| build_dir.join(f).exists())
                 .unwrap_or(&"Makefile");
 
+            let mut cmd = Command::new("make");
+            cmd.arg("-f").arg(makefile)
+                .args(&final_flags)
+                .current_dir(&build_dir)
+                .stdout(Stdio::null());
+
+            cmd.status().expect("Make command failed")
+        }
+        "autotools" => {
+            let configure_status = Command::new("./configure")
+                .args(&final_flags)
+                .current_dir(&build_dir)
+                .status()
+                .expect("Configure command failed");
+            
+            if !configure_status.success() {
+                eprintln!("{}", Red.paint("Configure failed"));
+                return;
+            }
+            
             Command::new("make")
-                .arg("-f")
-                .arg(makefile)
                 .current_dir(&build_dir)
                 .stdout(Stdio::null())
                 .status()
@@ -155,15 +206,19 @@ pub fn install(
             let cmake_build_dir = build_dir.join("build");
             fs::create_dir_all(&cmake_build_dir).expect("Failed to create build dir");
 
-            let cmake_status = Command::new("cmake")
+            let mut cmake_cmd = Command::new("cmake");
+            cmake_cmd
                 .arg("-DCMAKE_BUILD_TYPE=Release")
+                .args(&final_flags)
                 .arg("..")
                 .current_dir(&cmake_build_dir)
-                .stdout(Stdio::null())
-                .status();
+                .stdout(Stdio::null());
+
+            let cmake_status = cmake_cmd.status();
 
             if cmake_status.is_err() || !cmake_status.as_ref().unwrap().success() {
                 Command::new("cmake")
+                    .args(&final_flags)
                     .arg("..")
                     .current_dir(&cmake_build_dir)
                     .stdout(Stdio::null())
@@ -178,6 +233,7 @@ pub fn install(
             cargo_cmd
                 .arg("build")
                 .arg("--release")
+                .args(&final_flags)
                 .arg("--manifest-path")
                 .arg(build_dir.join("Cargo.toml"))
                 .arg("--target-dir")
@@ -193,6 +249,7 @@ pub fn install(
 
             let meson_status = Command::new("meson")
                 .arg("setup")
+                .args(&final_flags)
                 .arg(&meson_build_dir)
                 .current_dir(&build_dir)
                 .stdout(Stdio::null())
@@ -216,10 +273,31 @@ pub fn install(
         }
         "ninja" => {
             Command::new("ninja")
+                .args(&final_flags)
                 .current_dir(&build_dir)
                 .stdout(Stdio::null())
                 .status()
                 .expect("Ninja build failed")
+        }
+        "nimble" => {
+            Command::new("nimble")
+                .arg("build")
+                .args(&final_flags)
+                .current_dir(&build_dir)
+                .stdout(Stdio::null())
+                .status()
+                .expect("Nimble command failed")
+        }
+        "stack" => {
+            Command::new("stack")
+                .arg("install")
+                .args(&final_flags)
+                .arg("--local-bin-path")
+                .arg(build_dir.join("bin"))
+                .current_dir(&build_dir)
+                .stdout(Stdio::null())
+                .status()
+                .expect("Stack command failed")
         }
         _ => unreachable!()
     };
@@ -230,8 +308,7 @@ pub fn install(
     }
 
     println!("~> Installing...");
-    let bin_name = format!("({}){}(radon)", source_str, repo);
-    let bin_path = find_binary_path(&build_dir, repo, build_system);
+    let bin_path = find_binary_path(&build_dir, repo, &build_system);
 
     if bin_path.is_none() {
         eprintln!("{}: Failed to find built binary", Red.paint("Error"));
@@ -254,73 +331,63 @@ pub fn install(
         println!("{}", Yellow.paint("WARNING: Installing system-wide"));
     }
 
+    let bin_name = bin_path.file_name().unwrap().to_str().unwrap();
+    let dest_path = dest.join(bin_name);
+
     if local {
-        fs::copy(&bin_path, dest.join(&bin_name))
+        fs::copy(&bin_path, &dest_path)
             .expect("Failed to copy binary to local directory");
     } else {
         Command::new(&utils::get_privilege_command())
             .arg("install")
             .arg("-m755")
             .arg(&bin_path)
-            .arg(dest.join(&bin_name))
+            .arg(&dest_path)
             .status()
             .expect("Installation failed");
     }
 
     if !local {
-        Command::new(&utils::get_privilege_command())
-            .arg("sh")
-            .arg("-c")
-            .arg(format!("echo '{}' >> /etc/radon/installed", repo))
-            .status()
-            .expect("Failed to update package list");
-    }
-
-    if !local && build_file.is_some() {
-        let buildfile_dir = Path::new("/var/lib/radon/buildfiles").join(repo);
-        let status = Command::new(&utils::get_privilege_command())
-            .arg("mkdir")
-            .arg("-p")
-            .arg(&buildfile_dir)
-            .status();
+        let mut installed = utils::get_installed_packages();
         
-        if status.is_ok() && status.unwrap().success() {
-            let status = Command::new(&utils::get_privilege_command())
-                .arg("cp")
-                .arg("-r")
-                .arg(&build_dir)
-                .arg(&buildfile_dir)
-                .status();
-
-            if status.is_ok() && status.unwrap().success() {
-                let mut metadata = format!("repo_url = \"https://{}/{}\"\n", domain, package);
-                metadata += &format!("build_file = \"{}\"\n", build_file.as_ref().unwrap());
-
-                if let Some(bf) = &build_file {
-                    let content = fs::read(build_dir.join(bf)).unwrap_or_default();
-                    let mut hasher = Sha256::new();
-                    hasher.update(&content);
-                    let hash = format!("{:x}", hasher.finalize());
-                    metadata += &format!("hash = \"{}\"\n", hash);
-                }
-
-                if build_system == "cargo" {
-                    let cargo_toml = fs::read_to_string(build_dir.join("Cargo.toml")).unwrap_or_default();
-                    if let Some(version) = cargo_toml.lines().find(|l| l.starts_with("version = ")) {
-                        metadata += &format!("version = \"{}\"\n", version.split('"').nth(1).unwrap_or(""));
-                    }
-                }
-
-                let temp_meta = Path::new("/tmp").join(format!("{}-metadata.toml", repo));
-                fs::write(&temp_meta, metadata).unwrap_or_default();
-                
-                let _ = Command::new(&utils::get_privilege_command())
-                    .arg("mv")
-                    .arg(&temp_meta)
-                    .arg(buildfile_dir.join("metadata.toml"))
-                    .status();
+        let mut hasher = Sha256::new();
+        if let Some(bf) = &build_file {
+            if let Ok(content) = fs::read(build_dir.join(bf)) {
+                hasher.update(&content);
             }
         }
+        let hash = format!("{:x}", hasher.finalize());
+        
+        let mut version = None;
+        if build_system == "cargo" {
+            if let Ok(cargo_toml) = fs::read_to_string(build_dir.join("Cargo.toml")) {
+                if let Some(v) = cargo_toml.lines().find(|l| l.starts_with("version = ")) {
+                    version = v.split('"').nth(1).map(|s| s.to_string());
+                }
+            }
+        }
+        
+        let pkg = utils::InstalledPackage {
+            name: repo.to_string(),
+            source: source.map(|s| s.to_string()),
+            build_system: build_system.to_string(),
+            location: dest_path.to_string_lossy().to_string(),
+            build_file: build_file.clone(),
+            hash: Some(hash),
+            version,
+        };
+        
+        installed.push(pkg);
+        
+        let temp_path = Path::new("/tmp").join("radon-installed.yaml");
+        fs::write(&temp_path, serde_yaml::to_string(&installed).unwrap()).unwrap();
+        
+        Command::new(&utils::get_privilege_command())
+            .arg("mv")
+            .arg(&temp_path)
+            .arg("/etc/radon/installed.yaml")
+            .status()
+            .expect("Failed to update package list");
     }
 
     println!("{} in {}s", Green.paint("~> INSTALL FINISHED"), start.elapsed().as_secs());
@@ -329,13 +396,8 @@ pub fn install(
         println!(
             "{}",
             Yellow.paint(
-                &format!("Warning: radon installs packages to /usr/local/bin by default.\n\
-                If /usr/local/bin is not in your $PATH, you may need to add it.\n\
-                Alternatively, you can move the installed binary manually:\n\
-                  {} cp /usr/local/bin/{} /usr/bin\n\
-                or\n\
-                  doas cp /usr/local/bin/{} /usr/bin",
-                utils::get_privilege_command(), bin_name, bin_name)
+                "Warning: radon installs packages to /usr/local/bin by default.\n\
+                If /usr/local/bin is not in your $PATH, you may need to add it."
             )
         );
     } else {
@@ -392,19 +454,16 @@ fn find_binary_path(build_dir: &Path, repo: &str, build_system: &str) -> Option<
         "cargo" => {
             let binary_name = get_cargo_binary_name(build_dir).unwrap_or_else(|| repo.to_string());
             let release_path = build_dir.join("target/release").join(&binary_name);
-            
             if release_path.exists() {
                 return Some(release_path);
             }
-            
             let debug_path = build_dir.join("target/debug").join(&binary_name);
             if debug_path.exists() {
                 return Some(debug_path);
             }
-            
             None
         },
-        "make" => {
+        "make" | "autotools" | "ninja" => {
             let path = build_dir.join(repo);
             if path.exists() { Some(path) } else { None }
         },
@@ -416,9 +475,17 @@ fn find_binary_path(build_dir: &Path, repo: &str, build_system: &str) -> Option<
             let build_output_dir = build_dir.join("build");
             find_executable_in_dir(&build_output_dir, repo)
         },
-        "ninja" => {
+        "nimble" => {
             let path = build_dir.join(repo);
             if path.exists() { Some(path) } else { None }
+        },
+        "stack" => {
+            let bin_dir = build_dir.join("bin");
+            if bin_dir.exists() {
+                find_executable_in_dir(&bin_dir, repo)
+            } else {
+                None
+            }
         },
         _ => None
     }
@@ -464,6 +531,21 @@ fn parse_make_deps(dir: &Path, makefiles: &[&str]) -> Vec<String> {
         .unwrap_or_default()
 }
 
+fn parse_autotools_deps(dir: &Path) -> Vec<String> {
+    let configure = fs::read_to_string(dir.join("configure")).unwrap_or_default();
+    let mut deps = Vec::new();
+    if configure.contains("PKG_CHECK_MODULES") {
+        deps.push("pkg-config".to_string());
+    }
+    if configure.contains("AC_PROG_CC") {
+        deps.push("gcc".to_string());
+    }
+    if configure.contains("AC_PROG_CXX") {
+        deps.push("g++".to_string());
+    }
+    deps
+}
+
 fn parse_cargo_deps(dir: &Path) -> Vec<String> {
     let cargo_toml = fs::read_to_string(dir.join("Cargo.toml")).unwrap_or_default();
     let value = cargo_toml.parse::<Value>().unwrap_or(Value::Table(Map::new()));
@@ -479,6 +561,37 @@ fn parse_cargo_deps(dir: &Path) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+fn parse_radon_json(path: &Path) -> (String, Vec<String>, Vec<String>) {
+    let file = std::fs::File::open(path).expect("Failed to open radon.json");
+    let reader = std::io::BufReader::new(file);
+    let json: serde_json::Value = serde_json::from_reader(reader).expect("Invalid radon.json");
+
+    let build_system = json["build_system"]
+        .as_str()
+        .unwrap_or("make")
+        .to_string();
+
+    let deps = json["dependencies"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let flags = json["flags"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    (build_system, deps, flags)
 }
 
 fn apply_patches(build_dir: &Path, patches_dir: &Path) {
