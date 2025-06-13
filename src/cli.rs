@@ -22,31 +22,27 @@ pub enum Commands {
         branch: Option<String>,
         #[arg(long)]
         patches: Option<PathBuf>,
+        #[arg(long)]
+        flags: Vec<String>,
     },
     Remove {
-        #[command(subcommand)]
-        target: RemoveTarget,
+        package: String,
     },
     Search {
         query: String,
     },
     List,
     Upgrade {
-        #[command(subcommand)]
-        target: UpgradeTarget,
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        package: Option<String>,
     },
-}
-
-#[derive(Debug, clap::Subcommand)]
-pub enum RemoveTarget {
-    Package { package: String },
-    Cache,
-}
-
-#[derive(Debug, clap::Subcommand)]
-pub enum UpgradeTarget {
-    All,
-    Package { package: String },
-    SelfUpgrade,
+    BulkInstall {
+        packages: Vec<String>,
+        #[arg(long)]
+        flags: Vec<String>,
+    },
+    ConvertCargo,
 }
 
