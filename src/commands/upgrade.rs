@@ -1,90 +1,20 @@
 use crate::commands::install::install;
-use crate::utils::{get_installed_packages, get_privilege_command};
-use crate::cli::UpgradeTarget;
+use crate::utils;
 use ansi_term::Colour::{Green, Red, Yellow};
 use sha2::{Sha256, Digest};
 use std::fs;
 use std::io::{self, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
-use std::env;
-use std::time::Instant;
 
-pub fn upgrade(target: UpgradeTarget) {
-    match target {
-        UpgradeTarget::All => upgrade_packages(true, None),
-        UpgradeTarget::Package { package } => upgrade_packages(false, Some(package)),
-        UpgradeTarget::SelfUpgrade => upgrade_self(),
-    }
-}
-
-fn upgrade_self() {
-    println!("{}", Yellow.paint("Upgrading radon..."));
-    let start = Instant::now();
-    let tmp = Path::new("/tmp/radon/self-upgrade");
-    let repo_url = "https://github.com/plyght/spine";
-
-    if tmp.exists() {
-        fs::remove_dir_all(tmp).expect("Failed to clean temp dir");
-    }
-    fs::create_dir_all(tmp).expect("Failed to create temp dir");
-
-    let clone_status = Command::new("git")
-        .arg("clone")
-        .arg("--depth=1")
-        .arg(repo_url)
-        .arg(tmp)
-        .status()
-        .expect("Git command failed");
-
-    if !clone_status.success() {
-        eprintln!("{}", Red.paint("Failed to clone radon repository"));
-        return;
-    }
-
-    let build_status = Command::new("cargo")
-        .arg("build")
-        .arg("--release")
-        .arg("--manifest-path")
-        .arg(tmp.join("Cargo.toml"))
-        .status()
-        .expect("Cargo command failed");
-
-    if !build_status.success() {
-        eprintln!("{}", Red.paint("Failed to build radon"));
-        return;
-    }
-
-    let current_exe = env::current_exe().expect("Failed to get current executable path");
-    let new_bin = tmp.join("target/release/spn");
-
-    if !new_bin.exists() {
-        eprintln!("{}", Red.paint("Failed to find built binary"));
-        return;
-    }
-
-    let privilege_cmd = get_privilege_command();
-    let install_status = Command::new(&privilege_cmd)
-        .arg("install")
-        .arg("-m755")
-        .arg(&new_bin)
-        .arg(&current_exe)
-        .status()
-        .expect("Installation failed");
-
-    if !install_status.success() {
-        eprintln!("{}", Red.paint("Failed to install new binary"));
-        return;
-    }
-
-    println!("{} in {}s", Green.paint("Radon upgraded successfully"), start.elapsed().as_secs());
-}
-
-fn upgrade_packages(all: bool, package: Option<String>) {
+pub fn upgrade(all: bool, package: Option<&str>) {
     let packages: Vec<String> = if all {
-        get_installed_packages()
+        utils::get_installed_packages()
+            .iter()
+            .map(|p| p.name.clone())
+            .collect()
     } else if let Some(pkg) = package {
-        vec![pkg]
+        vec![pkg.to_string()]
     } else {
         eprintln!("{}", Red.paint("Specify --all or --package"));
         return;
@@ -97,7 +27,17 @@ fn upgrade_packages(all: bool, package: Option<String>) {
 
     for pkg in packages {
         println!("Checking {} for updates...", pkg);
+        let installed = utils::get_installed_packages();
+        let pkg_index = match installed.iter().position(|p| p.name == pkg) {
+            Some(idx) => idx,
+            None => {
+                println!("{}: Package not installed", Yellow.paint("Warning"));
+                continue;
+            }
+        };
+        
         let buildfile_dir = Path::new("/var/lib/radon/buildfiles").join(&pkg);
+        
         if !buildfile_dir.exists() {
             println!("{}: No build files found for {}", Yellow.paint("Warning"), pkg);
             continue;
@@ -178,7 +118,7 @@ fn upgrade_packages(all: bool, package: Option<String>) {
                 .unwrap_or("")
                 .to_string()
         } else {
-            "".to_string()
+            "".to_string() 
         };
 
         let changed = new_hash != stored_hash || new_version != stored_version;
@@ -194,6 +134,19 @@ fn upgrade_packages(all: bool, package: Option<String>) {
         println!("Old hash: {}", stored_hash);
         println!("New hash: {}\n", new_hash);
 
+        print!("Show diff? [y/N] ");
+        io::stdout().flush().unwrap();
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+
+        if input.trim().eq_ignore_ascii_case("y") {
+            let _ = Command::new("diff")
+                .arg("-u")
+                .arg(buildfile_dir.join(build_file_name))
+                .arg(&build_file_path)
+                .status();
+        }
+
         print!("\nUpgrade {}? [Y/n] ", pkg);
         io::stdout().flush().unwrap();
         let mut input = String::new();
@@ -205,9 +158,9 @@ fn upgrade_packages(all: bool, package: Option<String>) {
         }
 
         println!("Reinstalling {}...", pkg);
-        install(&pkg, None, false, None, None);
+        install(&pkg, None, false, None, None, &[]);
 
-        let _ = Command::new(&get_privilege_command())
+        let _ = Command::new(&utils::get_privilege_command())
             .arg("cp")
             .arg("-r")
             .arg(&tmp_build)
