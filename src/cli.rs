@@ -11,19 +11,21 @@ pub struct Cli {
 #[derive(Debug, clap::Subcommand)]
 pub enum Commands {
     Install {
-        package: String,
+        packages: Vec<String>,
         #[arg(long)]
         gitlab: bool,
         #[arg(long)]
         codeberg: bool,
         #[arg(long)]
         local: bool,
-        #[arg(long)]
+        #[arg(short, long)]
         branch: Option<String>,
         #[arg(long)]
         patches: Option<PathBuf>,
         #[arg(long)]
         flags: Vec<String>,
+        #[arg(short, long)]
+        yes: bool,
     },
     Remove {
         package: String,
@@ -33,16 +35,14 @@ pub enum Commands {
     },
     List,
     Upgrade {
-        #[arg(long)]
-        all: bool,
-        #[arg(long)]
         package: Option<String>,
+        #[arg(short, long)]
+        branch: Option<String>,
+        #[arg(short, long)]
+        yes: bool,
     },
-    BulkInstall {
-        packages: Vec<String>,
-        #[arg(long)]
-        flags: Vec<String>,
+    Convert {
+        #[arg(short, long)]
+        file: Option<PathBuf>,
     },
-    ConvertCargo,
 }
-
