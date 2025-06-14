@@ -1,10 +1,11 @@
-use std::fs::{self, File};
+use std::fs;
+use std::fs::File;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use ansi_term::Colour::Red;
 use serde::{Serialize, Deserialize};
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct InstalledPackage {
     pub name: String,
     pub source: Option<String>,
