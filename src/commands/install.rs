@@ -8,16 +8,32 @@ use ansi_term::Colour::{Green, Red, Yellow};
 use toml::{Value, map::Map};
 use sha2::{Sha256, Digest};
 use toml::Table;
-use serde_json;
 use crate::utils;
 
 pub fn install(
-    package: &str,
-    source: Option<&str>,
+    packages: &[String],
+    gitlab: bool,
+    codeberg: bool,
     local: bool,
     branch: Option<&str>,
     patches: Option<&Path>,
     flags: &[String],
+    yes: bool,
+) {
+    for package in packages {
+        install_single(package, gitlab, codeberg, local, branch, patches, flags, yes);
+    }
+}
+
+pub fn install_single(
+    package: &str,
+    gitlab: bool,
+    codeberg: bool,
+    local: bool,
+    branch: Option<&str>,
+    patches: Option<&Path>,
+    flags: &[String],
+    yes: bool,
 ) {
     let start = Instant::now();
     let tmp = Path::new("/tmp/radon");
@@ -30,6 +46,14 @@ pub fn install(
         }
     }
 
+    let source = if codeberg {
+        Some("codeberg")
+    } else if gitlab {
+        Some("gitlab")
+    } else {
+        None
+    };
+    
     let (source_str, domain) = match source {
         Some("gitlab") => ("gitlab", "gitlab.com"),
         Some("codeberg") => ("codeberg", "codeberg.org"),
@@ -43,7 +67,7 @@ pub fn install(
         fs::remove_dir_all(&build_dir).expect("Failed to clean previous build");
     }
 
-    println!("\x1b[1m~> Cloning repository\x1b[0m");
+    println!("\x1b[1m~> Cloning repository: {}\x1b[0m", package);
     let mut git_clone = Command::new("git");
     git_clone
         .arg("clone")
@@ -100,7 +124,7 @@ pub fn install(
     let mut final_flags = custom_flags;
     final_flags.extend(flags.iter().cloned());
 
-    println!("~> Build file is {}", match build_system.as_str() {
+    println!("~> Build system: {}", match build_system.as_str() {
         "make" => Green.paint("Make"),
         "autotools" => Green.paint("Autotools"),
         "cargo" => Green.paint("Cargo"),
@@ -124,44 +148,46 @@ pub fn install(
         _ => None,
     };
 
-    if let Some(file) = &build_file {
-        let file_path = if file == "*.nimble" {
-            let nimble_files: Vec<_> = fs::read_dir(&build_dir)
-                .unwrap()
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .filter(|p| p.extension().map(|e| e == "nimble").unwrap_or(false))
-                .collect();
-            if nimble_files.is_empty() {
-                None
+    if !yes {
+        if let Some(file) = &build_file {
+            let file_path = if file == "*.nimble" {
+                let nimble_files: Vec<_> = fs::read_dir(&build_dir)
+                    .unwrap()
+                    .filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| p.extension().map(|e| e == "nimble").unwrap_or(false))
+                    .collect();
+                if nimble_files.is_empty() {
+                    None
+                } else {
+                    nimble_files.get(0).cloned()
+                }
             } else {
-                nimble_files.get(0).cloned()
-            }
-        } else {
-            Some(build_dir.join(file))
-        };
+                Some(build_dir.join(file))
+            };
 
-        if let Some(file_path) = file_path {
-            if file_path.exists() {
-                println!("~> Showing build file: {}", file);
-                let status = Command::new("less")
-                    .arg(&file_path)
-                    .status();
-
-                if status.is_err() || !status.unwrap().success() {
-                    let _ = Command::new("cat")
+            if let Some(file_path) = file_path {
+                if file_path.exists() {
+                    println!("~> Build file: {}", file);
+                    let status = Command::new("less")
                         .arg(&file_path)
                         .status();
-                }
 
-                print!("~> Proceed with build? [Y/n] ");
-                io::stdout().flush().unwrap();
-                let mut input = String::new();
-                io::stdin().read_line(&mut input).unwrap();
+                    if status.is_err() || !status.unwrap().success() {
+                        let _ = Command::new("cat")
+                            .arg(&file_path)
+                            .status();
+                    }
 
-                if input.trim().eq_ignore_ascii_case("n") {
-                    println!("{}", Yellow.paint("Build cancelled by user"));
-                    return;
+                    print!("~> Proceed with build? [Y/n] ");
+                    io::stdout().flush().unwrap();
+                    let mut input = String::new();
+                    io::stdin().read_line(&mut input).unwrap();
+
+                    if input.trim().eq_ignore_ascii_case("n") {
+                        println!("{}", Yellow.paint("Build cancelled by user"));
+                        return;
+                    }
                 }
             }
         }
