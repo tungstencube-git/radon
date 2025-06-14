@@ -1,0 +1,17 @@
+{
+  "build_system": "cargo",
+  "dependencies": [
+    "ansi_term",
+    "clap",
+    "comfy-table",
+    "reqwest",
+    "serde",
+    "serde_json",
+    "serde_yaml",
+    "sha2",
+    "tempfile",
+    "toml",
+    "urlencoding"
+  ],
+  "name": "radon"
+}
