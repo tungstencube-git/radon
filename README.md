@@ -21,6 +21,7 @@
 # Next Point Release Goals
 
 - pkgbuild and ebuild support
+- improve conversion
 - honestly i dont have much ideas
 - maybe windows support???
 
@@ -48,6 +49,7 @@
 | `radon help <command>`   | help.                                                                  |
 | `radon list`             | lists installed packages
 | `radon upgrade`          | upgrades installed packages
+| `radon convert`          | converts whatever build file to radon.json (currently only cargo)
 
 # FAQ 
 
