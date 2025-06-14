@@ -1,6 +1,6 @@
 [package]
 name = "radon"
-version = "2.4.0"
+version = "3.1.0"
 edition = "2024"
 description = "package manager for git"
 repository = "https://github.com/tungstencube-git/radon"
