@@ -28,9 +28,16 @@
 
 # Installation
 
+- `sudo pacman -S cargo git patch`
+- or
+- `doas apk add cargo git patch`
+- or
+- `pkg install cargo git patch`
+- and
 - `git clone https://github.com/tungstencube-git/radon`
 - `cd radon`
 - `cargo build --release`
+- autotools make meson ninja nimble nim stack cmake optional but you most likely will need them
 
 # Commands
 
