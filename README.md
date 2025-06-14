@@ -20,11 +20,9 @@
 
 # Next Point Release Goals
 
-- autotools support
-- binary tracking with hash for remove
-- radon.json dependency file
-- remove function overhaul
-- customizable build (wlsroots without xwayland)
+- pkgbuild and ebuild support
+- honestly i dont have much ideas
+- maybe windows support???
 
 # Installation
 
@@ -58,6 +56,7 @@
 - how does it function - clones repository checks for build system builds clones to /usr/local/bin or ~/.local/bin
 - what wm are you using (yes ik my rice is very cool) - i3
 - how does this compare to ubi - ubi installs binaries (like choccy) this builds from source
+- how does this compare to pkgbuild or ebuild - both pkgbuild and ebuild need their own build file, radon does not
 
 # Misc
 
