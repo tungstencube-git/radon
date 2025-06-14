@@ -1,4 +1,4 @@
-use crate::commands::install::install;
+use crate::commands::install::install_single;
 use crate::utils;
 use ansi_term::Colour::{Green, Red, Yellow};
 use sha2::{Sha256, Digest};
@@ -7,22 +7,51 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::process::Command;
 
-pub fn upgrade(all: bool, package: Option<&str>) {
-    let packages: Vec<String> = if all {
+pub fn upgrade(package: Option<&str>, branch: Option<&str>, yes: bool) {
+    let packages: Vec<String> = if let Some(pkg) = package {
+        vec![pkg.to_string()]
+    } else {
         utils::get_installed_packages()
             .iter()
             .map(|p| p.name.clone())
             .collect()
-    } else if let Some(pkg) = package {
-        vec![pkg.to_string()]
-    } else {
-        eprintln!("{}", Red.paint("Specify --all or --package"));
-        return;
     };
 
     if packages.is_empty() {
         println!("No packages to upgrade");
         return;
+    }
+
+    if package.is_none() {
+        println!(
+            "{}", 
+            Yellow.paint("WARNING: You are upgrading ALL packages. This may cause system instability!")
+        );
+        if !yes {
+            print!("Continue? [y/N] ");
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            if !input.trim().eq_ignore_ascii_case("y") {
+                println!("{}", Yellow.paint("Upgrade cancelled"));
+                return;
+            }
+        }
+    } else {
+        println!(
+            "{}", 
+            Yellow.paint(&format!("WARNING: You are upgrading package: {}", package.unwrap()))
+        );
+        if !yes {
+            print!("Continue? [y/N] ");
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            if !input.trim().eq_ignore_ascii_case("y") {
+                println!("{}", Yellow.paint("Upgrade cancelled"));
+                return;
+            }
+        }
     }
 
     for pkg in packages {
@@ -61,6 +90,11 @@ pub fn upgrade(all: bool, package: Option<&str>) {
             .and_then(|l| l.split('"').nth(1))
             .unwrap_or("");
 
+        let stored_branch = metadata.lines()
+            .find(|l| l.starts_with("branch = "))
+            .and_then(|l| l.split('"').nth(1))
+            .map(|s| s.to_string());
+
         let tmp_build = Path::new("/tmp/radon/upgrade").join(&pkg);
         if tmp_build.exists() {
             fs::remove_dir_all(&tmp_build).unwrap_or_default();
@@ -77,9 +111,44 @@ pub fn upgrade(all: bool, package: Option<&str>) {
             continue;
         }
 
+        let mut branch_to_use = branch.map(|s| s.to_string()).or(stored_branch);
+        
+        if branch_to_use.is_none() {
+            println!("{}", Yellow.paint("No branch specified in metadata or command"));
+            let branches = get_remote_branches(repo_url);
+            if branches.is_empty() {
+                println!("{}: Failed to get branches for {}", Red.paint("Error"), pkg);
+                continue;
+            }
+            
+            println!("Available branches:");
+            for (i, b) in branches.iter().enumerate() {
+                println!("{}. {}", i + 1, b);
+            }
+            
+            print!("Select branch to upgrade (number): ");
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
+            
+            if let Ok(num) = input.trim().parse::<usize>() {
+                if num > 0 && num <= branches.len() {
+                    branch_to_use = Some(branches[num - 1].clone());
+                } else {
+                    println!("{}: Invalid selection", Red.paint("Error"));
+                    continue;
+                }
+            } else {
+                println!("{}: Invalid input", Red.paint("Error"));
+                continue;
+            }
+        }
+
         let status = Command::new("git")
             .arg("clone")
             .arg("--depth=1")
+            .arg("--branch")
+            .arg(branch_to_use.as_ref().unwrap())
             .arg(repo_url)
             .arg(&tmp_build)
             .status();
@@ -134,31 +203,33 @@ pub fn upgrade(all: bool, package: Option<&str>) {
         println!("Old hash: {}", stored_hash);
         println!("New hash: {}\n", new_hash);
 
-        print!("Show diff? [y/N] ");
-        io::stdout().flush().unwrap();
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
+        if !yes {
+            print!("Show diff? [y/N] ");
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
 
-        if input.trim().eq_ignore_ascii_case("y") {
-            let _ = Command::new("diff")
-                .arg("-u")
-                .arg(buildfile_dir.join(build_file_name))
-                .arg(&build_file_path)
-                .status();
-        }
+            if input.trim().eq_ignore_ascii_case("y") {
+                let _ = Command::new("diff")
+                    .arg("-u")
+                    .arg(buildfile_dir.join(build_file_name))
+                    .arg(&build_file_path)
+                    .status();
+            }
 
-        print!("\nUpgrade {}? [Y/n] ", pkg);
-        io::stdout().flush().unwrap();
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
+            print!("\nUpgrade {}? [Y/n] ", pkg);
+            io::stdout().flush().unwrap();
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).unwrap();
 
-        if input.trim().eq_ignore_ascii_case("n") {
-            println!("Skipping {}", pkg);
-            continue;
+            if input.trim().eq_ignore_ascii_case("n") {
+                println!("Skipping {}", pkg);
+                continue;
+            }
         }
 
         println!("Reinstalling {}...", pkg);
-        install(&pkg, None, false, None, None, &[]);
+        install_single(&pkg, false, false, false, branch_to_use.as_deref(), None, &[], yes);
 
         let _ = Command::new(&utils::get_privilege_command())
             .arg("cp")
@@ -167,4 +238,29 @@ pub fn upgrade(all: bool, package: Option<&str>) {
             .arg(&buildfile_dir)
             .status();
     }
+}
+
+fn get_remote_branches(repo_url: &str) -> Vec<String> {
+    let output = match Command::new("git")
+        .arg("ls-remote")
+        .arg("--heads")
+        .arg(repo_url)
+        .output() {
+            Ok(output) => output,
+            Err(_) => return Vec::new(),
+        };
+    
+    if !output.status.success() {
+        return Vec::new();
+    }
+    
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    output_str
+        .lines()
+        .filter_map(|line| {
+            line.split_whitespace().nth(1).and_then(|r| {
+                r.strip_prefix("refs/heads/").map(|s| s.to_string())
+            })
+        })
+        .collect()
 }
