@@ -41,8 +41,4 @@ pub enum Commands {
         #[arg(short, long)]
         yes: bool,
     },
-    Convert {
-        #[arg(short, long)]
-        file: Option<PathBuf>,
-    },
 }

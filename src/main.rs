@@ -5,8 +5,6 @@ mod commands;
 use clap::Parser;
 use cli::{Cli, Commands};
 use commands::{install, remove, search, list, upgrade};
-use commands::convert::convert;
-use std::path::Path;
 
 fn main() {
     utils::setup_radon_dirs();
@@ -29,6 +27,5 @@ fn main() {
         Commands::List => list::list(),
         Commands::Upgrade { package, branch, yes } => 
             upgrade::upgrade(package.as_deref(), branch.as_deref(), yes),
-        Commands::Convert { file } => convert(file.as_deref().map(Path::new)),
     }
 }

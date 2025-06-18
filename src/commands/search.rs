@@ -1,14 +1,25 @@
 use reqwest::blocking::Client;
 use reqwest::header;
 use serde_json::Value;
-use comfy_table::{Table, ContentArrangement};
-use comfy_table::presets::UTF8_FULL;
+use ansi_term::Colour::{Green, Red};
+use std::time::Duration;
 
 pub fn search(query: &str) {
-    let url = format!("https://api.github.com/search/repositories?q={}",
+    println!("{}", Green.paint("Searching AUR and GitHub..."));
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .unwrap();
+
+    search_aur(query, &client);
+    search_github(query, &client);
+}
+
+fn search_aur(query: &str, client: &Client) {
+    let url = format!("https://aur.archlinux.org/rpc/?v=5&type=search&arg={}", 
                      urlencoding::encode(query));
 
-    let client = Client::new();
     let response = client.get(&url)
         .header(header::USER_AGENT, "radon-pkg-manager")
         .send();
@@ -16,13 +27,14 @@ pub fn search(query: &str) {
     let resp = match response {
         Ok(resp) => resp,
         Err(e) => {
-            eprintln!("Failed to access GitHub API: {}", e);
+            eprintln!("{}: Failed to access AUR API: {}", Red.paint("Error"), e);
             return;
         }
     };
 
     if !resp.status().is_success() {
-        eprintln!("GitHub API error: {} - {}",
+        eprintln!("{}: AUR API error: {} - {}", 
+                 Red.paint("Error"),
                  resp.status(),
                  resp.text().unwrap_or_default());
         return;
@@ -31,37 +43,64 @@ pub fn search(query: &str) {
     let json: Value = match resp.json() {
         Ok(v) => v,
         Err(e) => {
-            eprintln!("Failed to parse GitHub response: {}", e);
+            eprintln!("{}: Failed to parse AUR response: {}", Red.paint("Error"), e);
+            return;
+        }
+    };
+
+    if let Some(results) = json["results"].as_array() {
+        println!("\n{}", Green.paint("AUR Packages:"));
+        for res in results.iter().take(20) {
+            if let Some(name) = res["Name"].as_str() {
+                let votes = res["NumVotes"].as_u64().unwrap_or(0);
+                let maintainer = res["Maintainer"].as_str().unwrap_or("Unknown");
+                println!("  {} - {} - {} votes", name, maintainer, votes);
+            }
+        }
+    }
+}
+
+fn search_github(query: &str, client: &Client) {
+    let url = format!("https://api.github.com/search/repositories?q={}",
+                     urlencoding::encode(query));
+
+    let response = client.get(&url)
+        .header(header::USER_AGENT, "radon-pkg-manager")
+        .send();
+
+    let resp = match response {
+        Ok(resp) => resp,
+        Err(e) => {
+            eprintln!("{}: Failed to access GitHub API: {}", Red.paint("Error"), e);
+            return;
+        }
+    };
+
+    if !resp.status().is_success() {
+        eprintln!("{}: GitHub API error: {} - {}",
+                 Red.paint("Error"),
+                 resp.status(),
+                 resp.text().unwrap_or_default());
+        return;
+    }
+
+    let json: Value = match resp.json() {
+        Ok(v) => v,
+        Err(e) => {
+            eprintln!("{}: Failed to parse GitHub response: {}", Red.paint("Error"), e);
             return;
         }
     };
 
     if let Some(items) = json["items"].as_array() {
-        let mut table = Table::new();
-        table
-            .load_preset(UTF8_FULL)
-            .set_content_arrangement(ContentArrangement::Dynamic)
-            .set_header(vec!["Package", "Stars", "Forks", "Source"]);
-
-        for item in items.iter().take(10) {
+        println!("\n{}", Green.paint("GitHub Repositories:"));
+        for item in items.iter().take(20) {
             if let Some(name) = item["full_name"].as_str() {
                 let stars = item["stargazers_count"].as_u64().unwrap_or(0);
                 let forks = item["forks_count"].as_u64().unwrap_or(0);
-                
-                table.add_row(vec![
-                    name,
-                    &stars.to_string(),
-                    &forks.to_string(),
-                    "GitHub"
-                ]);
+                let owner = item["owner"]["login"].as_str().unwrap_or("Unknown");
+                println!("  {} - {} - {}★ - {} forks", name, owner, stars, forks);
             }
-        }
-        
-        println!("{}", table);
-    } else {
-        eprintln!("Unexpected GitHub API response format");
-        if let Some(message) = json["message"].as_str() {
-            eprintln!("GitHub says: {}", message);
         }
     }
 }

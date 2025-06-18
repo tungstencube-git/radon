@@ -1,9 +1,21 @@
+use serde::{Serialize, Deserialize};
 use std::env;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 use ansi_term::Colour::{Green, Red, Yellow};
 use crate::utils;
+
+#[derive(Serialize, Deserialize)]
+pub struct InstalledPackage {
+    pub name: String,
+    pub source: Option<String>,
+    pub build_system: String,
+    pub location: String,
+    pub build_file: Option<String>,
+    pub hash: Option<String>,
+    pub version: Option<String>,
+}
 
 fn get_local_bin_path() -> std::path::PathBuf {
     env::var("HOME")
@@ -51,4 +63,3 @@ pub fn remove(package: &str) {
         eprintln!("{}: Package '{}' not found", Red.paint("Error"), package);
     }
 }
-

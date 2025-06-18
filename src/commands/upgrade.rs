@@ -1,6 +1,6 @@
 use crate::commands::install::install_single;
 use crate::utils;
-use ansi_term::Colour::{Green, Red, Yellow};
+use ansi_term::Colour::{Green, Red};
 use sha2::{Sha256, Digest};
 use std::fs;
 use std::io::{self, Write};
@@ -22,59 +22,27 @@ pub fn upgrade(package: Option<&str>, branch: Option<&str>, yes: bool) {
         return;
     }
 
-    if package.is_none() {
-        println!(
-            "{}", 
-            Yellow.paint("WARNING: You are upgrading ALL packages. This may cause system instability!")
-        );
-        if !yes {
-            print!("Continue? [y/N] ");
-            io::stdout().flush().unwrap();
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).unwrap();
-            if !input.trim().eq_ignore_ascii_case("y") {
-                println!("{}", Yellow.paint("Upgrade cancelled"));
-                return;
-            }
-        }
-    } else {
-        println!(
-            "{}", 
-            Yellow.paint(&format!("WARNING: You are upgrading package: {}", package.unwrap()))
-        );
-        if !yes {
-            print!("Continue? [y/N] ");
-            io::stdout().flush().unwrap();
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).unwrap();
-            if !input.trim().eq_ignore_ascii_case("y") {
-                println!("{}", Yellow.paint("Upgrade cancelled"));
-                return;
-            }
-        }
-    }
-
-    for pkg in packages {
+    for pkg in &packages {
         println!("Checking {} for updates...", pkg);
         let installed = utils::get_installed_packages();
-        let pkg_index = match installed.iter().position(|p| p.name == pkg) {
+        let pkg_index = match installed.iter().position(|p| p.name == *pkg) {
             Some(idx) => idx,
             None => {
-                println!("{}: Package not installed", Yellow.paint("Warning"));
+                println!("{}: Package not installed", "Warning");
                 continue;
             }
         };
         
-        let buildfile_dir = Path::new("/var/lib/radon/buildfiles").join(&pkg);
+        let buildfile_dir = Path::new("/var/lib/radon/buildfiles").join(pkg);
         
         if !buildfile_dir.exists() {
-            println!("{}: No build files found for {}", Yellow.paint("Warning"), pkg);
+            println!("{}: No build files found for {}", "Warning", pkg);
             continue;
         }
 
         let metadata_path = buildfile_dir.join("metadata.toml");
         if !metadata_path.exists() {
-            println!("{}: No metadata found for {}", Yellow.paint("Warning"), pkg);
+            println!("{}: No metadata found for {}", "Warning", pkg);
             continue;
         }
 
@@ -95,7 +63,7 @@ pub fn upgrade(package: Option<&str>, branch: Option<&str>, yes: bool) {
             .and_then(|l| l.split('"').nth(1))
             .map(|s| s.to_string());
 
-        let tmp_build = Path::new("/tmp/radon/upgrade").join(&pkg);
+        let tmp_build = Path::new("/tmp/radon/upgrade").join(pkg);
         if tmp_build.exists() {
             fs::remove_dir_all(&tmp_build).unwrap_or_default();
         }
@@ -107,17 +75,17 @@ pub fn upgrade(package: Option<&str>, branch: Option<&str>, yes: bool) {
             .unwrap_or("");
 
         if repo_url.is_empty() {
-            println!("{}: No repo URL for {}", Red.paint("Error"), pkg);
+            println!("{}: No repo URL for {}", "Error", pkg);
             continue;
         }
 
         let mut branch_to_use = branch.map(|s| s.to_string()).or(stored_branch);
         
         if branch_to_use.is_none() {
-            println!("{}", Yellow.paint("No branch specified in metadata or command"));
+            println!("No branch specified in metadata or command");
             let branches = get_remote_branches(repo_url);
             if branches.is_empty() {
-                println!("{}: Failed to get branches for {}", Red.paint("Error"), pkg);
+                println!("{}: Failed to get branches for {}", "Error", pkg);
                 continue;
             }
             
@@ -135,11 +103,11 @@ pub fn upgrade(package: Option<&str>, branch: Option<&str>, yes: bool) {
                 if num > 0 && num <= branches.len() {
                     branch_to_use = Some(branches[num - 1].clone());
                 } else {
-                    println!("{}: Invalid selection", Red.paint("Error"));
+                    println!("Invalid selection");
                     continue;
                 }
             } else {
-                println!("{}: Invalid input", Red.paint("Error"));
+                println!("Invalid input");
                 continue;
             }
         }
@@ -154,7 +122,7 @@ pub fn upgrade(package: Option<&str>, branch: Option<&str>, yes: bool) {
             .status();
 
         if status.is_err() || !status.unwrap().success() {
-            println!("{}: Failed to clone {}", Red.paint("Error"), pkg);
+            println!("Failed to clone {}", pkg);
             continue;
         }
 
@@ -164,13 +132,13 @@ pub fn upgrade(package: Option<&str>, branch: Option<&str>, yes: bool) {
             .unwrap_or("");
 
         if build_file_name.is_empty() {
-            println!("{}: No build file for {}", Red.paint("Error"), pkg);
+            println!("No build file for {}", pkg);
             continue;
         }
 
         let build_file_path = tmp_build.join(build_file_name);
         if !build_file_path.exists() {
-            println!("{}: Build file not found", Red.paint("Error"));
+            println!("Build file not found");
             continue;
         }
 
@@ -182,7 +150,7 @@ pub fn upgrade(package: Option<&str>, branch: Option<&str>, yes: bool) {
         let new_version = if build_file_name == "Cargo.toml" {
             let cargo_toml = fs::read_to_string(&build_file_path).unwrap_or_default();
             cargo_toml.lines()
-                .find(|l| l.starts_with("version = "))
+                .find(|l| l.trim().starts_with("version = "))
                 .and_then(|l| l.split('"').nth(1))
                 .unwrap_or("")
                 .to_string()
@@ -197,7 +165,7 @@ pub fn upgrade(package: Option<&str>, branch: Option<&str>, yes: bool) {
             continue;
         }
 
-        println!("\n{} update available for {}", Green.paint("NEW"), pkg);
+        println!("\nNEW update available for {}", pkg);
         println!("Old version: {}", stored_version);
         println!("New version: {}", new_version);
         println!("Old hash: {}", stored_hash);
@@ -229,7 +197,7 @@ pub fn upgrade(package: Option<&str>, branch: Option<&str>, yes: bool) {
         }
 
         println!("Reinstalling {}...", pkg);
-        install_single(&pkg, false, false, false, branch_to_use.as_deref(), None, &[], yes);
+        install_single(pkg, false, false, false, branch_to_use.as_deref(), None, &[], yes);
 
         let _ = Command::new(&utils::get_privilege_command())
             .arg("cp")

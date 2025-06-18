@@ -4,11 +4,24 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::io::{self, Write};
 use std::time::Instant;
+use std::collections::HashMap;
 use ansi_term::Colour::{Green, Red, Yellow};
 use toml::{Value, map::Map};
 use sha2::{Sha256, Digest};
 use toml::Table;
+use serde::{Serialize, Deserialize};
 use crate::utils;
+
+#[derive(Serialize, Deserialize)]
+pub struct InstalledPackage {
+    pub name: String,
+    pub source: Option<String>,
+    pub build_system: String,
+    pub location: String,
+    pub build_file: Option<String>,
+    pub hash: Option<String>,
+    pub version: Option<String>,
+}
 
 pub fn install(
     packages: &[String],
@@ -35,6 +48,10 @@ pub fn install_single(
     flags: &[String],
     yes: bool,
 ) {
+    if !gitlab && !codeberg && !local && !package.contains('/') {
+        install_aur(package, local, flags, yes);
+        return;
+    }
     let start = Instant::now();
     let tmp = Path::new("/tmp/radon");
     let builds = tmp.join("builds");
@@ -93,6 +110,103 @@ pub fn install_single(
         apply_patches(&build_dir, patches_dir);
     }
 
+    build_and_install_from_source(&build_dir, repo, source, local, flags, yes, start);
+}
+
+fn install_aur(package: &str, local: bool, flags: &[String], yes: bool) {
+    let start = Instant::now();
+    let aur_builds = Path::new("/tmp/radon/aur");
+    let build_dir = aur_builds.join(package);
+    
+    if build_dir.exists() {
+        fs::remove_dir_all(&build_dir).expect("Failed to clean previous build");
+    }
+    fs::create_dir_all(&build_dir).expect("Failed to create build directory");
+    
+    let pkgbuild_path = build_dir.join("PKGBUILD");
+    let pkgbuild_url = format!("https://aur.archlinux.org/cgit/aur.git/plain/PKGBUILD?h={}", package);
+    
+    println!("{}", Yellow.paint("~> Downloading PKGBUILD"));
+    let status = Command::new("curl")
+        .arg("-fL")
+        .arg("--output")
+        .arg(&pkgbuild_path)
+        .arg(&pkgbuild_url)
+        .status()
+        .expect("Failed to download PKGBUILD");
+    
+    if !status.success() {
+        eprintln!("{}", Red.paint("Failed to download PKGBUILD"));
+        return;
+    }
+    
+    let content = fs::read_to_string(&pkgbuild_path).unwrap_or_default();
+    let mut variables = parse_pkgbuild_variables(&content);
+    variables.entry("pkgname".to_string()).or_insert_with(|| package.to_string());
+    
+    let source_urls = extract_source_urls(&content, &variables);
+    let src_url = source_urls.into_iter()
+        .find(|url| !url.is_empty())
+        .or_else(|| {
+            content.lines()
+                .find(|line| line.trim().starts_with("url="))
+                .and_then(|line| {
+                    let url_part = line.trim_start_matches("url=")
+                        .trim_matches(|c| c == '"' || c == '\'');
+                    let expanded = expand_variables(url_part, &variables);
+                    let normalized = normalize_git_url(&expanded);
+                    if !normalized.is_empty() {
+                        Some(normalized)
+                    } else {
+                        None
+                    }
+                })
+        });
+    
+    let src_url = match src_url {
+        Some(url) => url,
+        None => {
+            eprintln!("{}", Red.paint("No valid git url found in PKGBUILD"));
+            return;
+        }
+    };
+    
+    let repo_name = src_url.split('/')
+        .last()
+        .unwrap_or("repo")
+        .trim_end_matches(".git");
+    
+    let src_dir = build_dir.join(repo_name);
+    if src_dir.exists() {
+        fs::remove_dir_all(&src_dir).expect("Failed to remove old source dir");
+    }
+    
+    println!("{}", Yellow.paint(&format!("~> Cloning source repository: {}", src_url)));
+    let status = Command::new("git")
+        .arg("clone")
+        .arg("--depth=1")
+        .arg(&src_url)
+        .arg(&src_dir)
+        .status()
+        .expect("Git clone failed");
+    
+    if !status.success() {
+        eprintln!("{}", Red.paint("Failed to clone source repository"));
+        return;
+    }
+    
+    build_and_install_from_source(&src_dir, package, Some("aur"), local, flags, yes, start);
+}
+
+fn build_and_install_from_source(
+    build_dir: &Path,
+    repo: &str,
+    source: Option<&str>,
+    local: bool,
+    flags: &[String],
+    yes: bool,
+    start: Instant,
+) {
     println!("\x1b[1m~> Searching for build file\x1b[0m");
     let makefiles = ["Makefile", "makefile", "GNUMakefile"];
     let has_makefile = makefiles.iter().any(|f| build_dir.join(f).exists());
@@ -393,7 +507,7 @@ pub fn install_single(
             }
         }
         
-        let pkg = utils::InstalledPackage {
+        let pkg = InstalledPackage {
             name: repo.to_string(),
             source: source.map(|s| s.to_string()),
             build_system: build_system.to_string(),
@@ -643,4 +757,116 @@ fn apply_patches(build_dir: &Path, patches_dir: &Path) {
             eprintln!("{}: Failed to apply {}", Red.paint("Error"), patch.display());
         }
     }
+}
+
+fn parse_pkgbuild_variables(content: &str) -> HashMap<String, String> {
+    let mut variables = HashMap::new();
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') { continue; }
+        if let Some(eq_pos) = line.find('=') {
+            let key = line[..eq_pos].trim();
+            let value = line[eq_pos+1..].trim();
+            let cleaned_value = value.trim_matches(|c| c == '"' || c == '\'' || c == '(' || c == ')').to_string();
+            variables.insert(key.to_string(), cleaned_value);
+        }
+    }
+    variables
+}
+
+fn expand_variables(text: &str, variables: &HashMap<String, String>) -> String {
+    let mut result = text.to_string();
+    while let Some(start) = result.find("${") {
+        if let Some(end) = result[start..].find('}') {
+            let var_name = &result[start+2..start+end];
+            if let Some(value) = variables.get(var_name) {
+                result.replace_range(start..start+end+1, value);
+            } else {
+                result.replace_range(start..start+end+1, "");
+            }
+        } else { break; }
+    }
+    let mut chars: Vec<char> = result.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '$' && i+1 < chars.len() && chars[i+1].is_alphabetic() {
+            let start = i;
+            i += 1;
+            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') { i += 1; }
+            let var_name: String = chars[start+1..i].iter().collect();
+            if let Some(value) = variables.get(&var_name) {
+                let replacement: Vec<char> = value.chars().collect();
+                chars.splice(start..i, replacement);
+                i = start + value.len();
+            }
+        } else { i += 1; }
+    }
+    chars.into_iter().collect()
+}
+
+fn normalize_git_url(url: &str) -> String {
+    let url = url.trim();
+    if url.contains(".tar.gz") || url.contains(".zip") || url.contains("archive/") {
+        return String::new();
+    }
+    if url.starts_with("https://github.com/") || 
+       url.starts_with("https://gitlab.com/") || 
+       url.starts_with("https://codeberg.org/") {
+        let parts: Vec<&str> = url.split('/').collect();
+        if parts.len() >= 5 {
+            let base_url = format!("{}/{}/{}/{}/{}", parts[0], parts[1], parts[2], parts[3], parts[4]);
+            return if !base_url.ends_with(".git") {
+                format!("{}.git", base_url)
+            } else {
+                base_url
+            };
+        }
+    }
+    if url.starts_with("git://") || url.ends_with(".git") {
+        return url.to_string();
+    }
+    String::new()
+}
+
+fn extract_source_urls(content: &str, variables: &HashMap<String, String>) -> Vec<String> {
+    let mut urls = Vec::new();
+    let mut in_source_array = false;
+    let mut paren_count = 0;
+    for line in content.lines() {
+        let line = line.trim();
+        if line.starts_with("source=") {
+            in_source_array = true;
+            let after_equals = &line[7..];
+            if after_equals.trim_start().starts_with('(') {
+                paren_count = 1;
+                let content = after_equals.trim_start().trim_start_matches('(');
+                process_source_line(content, &mut urls, variables, &mut paren_count, &mut in_source_array);
+            } else {
+                let url = expand_variables(after_equals.trim_matches(|c| c == '"' || c == '\''), variables);
+                let normalized = normalize_git_url(&url);
+                if !normalized.is_empty() { urls.push(normalized); }
+                in_source_array = false;
+            }
+        } else if in_source_array {
+            process_source_line(line, &mut urls, variables, &mut paren_count, &mut in_source_array);
+        }
+    }
+    urls
+}
+
+fn process_source_line(line: &str, urls: &mut Vec<String>, variables: &HashMap<String, String>, paren_count: &mut i32, in_source_array: &mut bool) {
+    let mut current_line = line;
+    while let Some(quote_start) = current_line.find(|c| c == '"' || c == '\'') {
+        let quote_char = current_line.chars().nth(quote_start).unwrap();
+        if let Some(quote_end) = current_line[quote_start+1..].find(quote_char) {
+            let url_candidate = &current_line[quote_start+1..quote_start+1+quote_end];
+            let expanded_url = expand_variables(url_candidate, variables);
+            let normalized = normalize_git_url(&expanded_url);
+            if !normalized.is_empty() { urls.push(normalized); }
+            current_line = &current_line[quote_start+1+quote_end+1..];
+        } else { break; }
+    }
+    *paren_count += line.chars().filter(|&c| c == '(').count() as i32;
+    *paren_count -= line.chars().filter(|&c| c == ')').count() as i32;
+    if *paren_count <= 0 { *in_source_array = false; }
 }
