@@ -1,3 +1,5 @@
+**THIS REPO HAS BEEN ABANDONED AND** ***WILL*** **BE REPLACED WITH** *YAP (yet another paru*
+
 # radon 
 - **r**eally **a**wesome meta package manager f**o**r **n**ix systems (couldnt afford the d)
 - formerly wolfram/scheele
